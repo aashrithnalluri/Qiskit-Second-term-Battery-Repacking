@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>RePack-Q · Environment Check</title>
+    <link rel="stylesheet" href="styles.css">
+    <script type="module" src="js/app.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="intro">
+        <p class="eyebrow">RePack-Q · Quantum battery recommissioning</p>
+        <h1>Environment check</h1>
+        <p class="lead">Verify the project’s Qiskit runtime and backend connection before optimizing battery packs.</p>
+      </header>
+
+      <section class="card" aria-labelledby="runtime-title">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Task 1 smoke test</p>
+            <h2 id="runtime-title">Qiskit runtime</h2>
+          </div>
+          <span id="runtime-state" class="state" role="status" aria-live="polite">Checking…</span>
+        </div>
+        <p id="runtime-copy">Looking for the verified RePack-Q runtime adapter.</p>
+        <button id="smoke-button" type="button" disabled>Run quantum smoke test</button>
+        <pre id="runtime-result" aria-label="Runtime result" tabindex="0">Waiting for runtime check…</pre>
+      </section>
+
+      <p class="footnote">Local simulator runs do not require credentials. A Qollab backend is used only when the verified host adapter provides it.</p>
+    </main>
+  </body>
+</html>

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light">
+    <title>RePack-Q · QAOA runtime check</title>
+    <link rel="stylesheet" href="web/styles.css">
+    <script defer src="main.js"></script>
+  </head>
+  <body>
+    <main class="shell">
+      <header class="intro">
+        <p class="eyebrow">RePack-Q · Quantum battery recommissioning</p>
+        <h1>QAOA runtime check</h1>
+        <p class="lead">Inspect the Qollab host runtime and copy a safe diagnostic report from this page.</p>
+      </header>
+
+      <section class="card" aria-labelledby="runtime-title">
+        <div class="card-heading">
+          <div>
+            <p class="eyebrow">Qollab project entry point</p>
+            <h2 id="runtime-title">Python runtime</h2>
+          </div>
+          <span id="runtime-state" class="state" role="status" aria-live="polite">Inspecting host…</span>
+        </div>
+        <p id="runtime-copy">The report lists matching public names and method names only. It does not display values or call host functions.</p>
+        <div class="actions">
+          <button id="inspect-button" type="button">Refresh host report</button>
+          <button id="copy-button" class="secondary" type="button">Copy report</button>
+          <button id="smoke-button" type="button" disabled>Run Qiskit smoke check</button>
+          <button id="qaoa-button" type="button" disabled>Run Task 5 toy QAOA</button>
+        </div>
+        <pre id="runtime-result" aria-label="Runtime result" tabindex="0">Waiting for runtime check…</pre>
+      </section>
+
+      <p class="footnote">Python execution controls stay disabled until Qollab’s supported browser-to-Python bridge is identified. The toy run uses synthetic input and does not represent battery results.</p>
+    </main>
+  </body>
+</html>
