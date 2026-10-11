@@ -11,10 +11,10 @@
 </p>
 
 <p align="center">
-  <b><a href="VIDEO_URL">▶ Demo video</a></b> &nbsp;·&nbsp;
-  <b><a href="QOLLAB_URL">⚛ Run on Qollab</a></b> &nbsp;·&nbsp;
-  <b><a href="#results">📊 Results</a></b> &nbsp;·&nbsp;
-  <b><a href="docs/TECHNICAL.md">🛠 Technical reference</a></b>
+  <b><a href="VIDEO_URL">Demo video</a></b> &nbsp;·&nbsp;
+  <b><a href="QOLLAB_URL">Run on Qollab</a></b> &nbsp;·&nbsp;
+  <b><a href="#results">Results</a></b> &nbsp;·&nbsp;
+  <b><a href="docs/TECHNICAL.md">Technical reference</a></b>
 </p>
 
 ---
@@ -41,9 +41,9 @@ A series string is only as good as its weakest cell. Two cells can match today a
 2. **Forecast without leakage.** A weighted linear fit to each cell's recent capacity predicts its capacity at the mission horizon. Prediction functions reject any observation after the decision cycle (enforced by `tests/test_no_leakage.py`).
 3. **QUBO.** For binary choices $x_i$ (cell *i* in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells:
 
-$$
-\min_{x\in\{0,1\}^N}\; \sum_{i<j} w_{ij}\,x_i x_j \;+\; \sum_i h_i\,x_i \;+\; \lambda\Big(\sum_i x_i - K\Big)^2
-$$
+```math
+\min_{x \in \lbrace 0,1 \rbrace^N} \sum_{i<j} w_{ij} x_i x_j + \sum_i h_i x_i + \lambda \Big( \sum_i x_i - K \Big)^2
+```
 
 4. **QAOA.** The QUBO maps to an Ising Hamiltonian via $x_i = (1 - Z_i)/2$; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
 5. **Score.** Each solver's pack is scored on the **held-out** future capacities: observed pack divergence (CV), bottleneck capacity, objective gap and runtime.
@@ -173,10 +173,10 @@ Retired EV cells usually keep 70–80% of their original capacity, which makes t
 
 | Hypothesis | Verdict | Evidence |
 |---|---|---|
-| **H1**: forecasting improves balance | ❌ **Not supported** on this seed set | Current-only 0.0719 vs trajectory-aware 0.0732 mean divergence; trajectory-aware better in 7/20 pools |
-| **H2**: QAOA finds near-optimal valid packs | ✅ **Supported** for finding the optimum | Valid pack in 20/20 pools; exact optimum sampled in 17/20; median gap 0 |
-| **H2 null**: no better than uniform | ⚠️ **Not rejected** | Valid-shot mass 29.3% vs 27.3% uniform; 1,024 uniform shots would also see the optimum in about 98% of runs |
-| Side result: optimization vs SOH sort | ✅ Every QUBO-based solver beat SOH sort on mean divergence | 0.0732 (exact) and 0.0762 (QAOA) vs 0.0767 (SOH sort) |
+| **H1**: forecasting improves balance | **Not supported** on this seed set | Current-only 0.0719 vs trajectory-aware 0.0732 mean divergence; trajectory-aware better in 7/20 pools |
+| **H2**: QAOA finds near-optimal valid packs | **Supported** for finding the optimum | Valid pack in 20/20 pools; exact optimum sampled in 17/20; median gap 0 |
+| **H2 null**: no better than uniform | **Not rejected** | Valid-shot mass 29.3% vs 27.3% uniform; 1,024 uniform shots would also see the optimum in about 98% of runs |
+| Side result: optimization vs SOH sort | Every QUBO-based solver beat SOH sort on mean divergence | 0.0732 (exact) and 0.0762 (QAOA) vs 0.0767 (SOH sort) |
 
 The negative H1 result is useful in its own right: a simple linear forecast doesn't yet carry enough information to change which pack is best. The H2 result shows that our pipeline is correct end to end, and that the quantum part will only earn its place once the circuit concentrates probability on good packs.
 
