@@ -6,7 +6,7 @@ Match batteries by how they will age, not just how they look today.
 
 RePack-Q is a hybrid optimization experiment for selecting a fixed-size series string from retired lithium-ion cells. It uses public longitudinal battery data, compares Qiskit QAOA with strong classical baselines, and evaluates held-out future capacity imbalance. It does not claim quantum speedup, predict certified pack lifetime, or determine whether a cell is safe to deploy.
 
-The repository includes a read-only raw-data inspector and a streaming preprocessing pipeline for the primary Deep Sorting battery dataset. The generated real-data trajectories stay local because the Zenodo record does not state a redistribution license. Task 7 connects the browser workbench to the Python UI API through a local, same-origin HTTP service. Qollab's Python mode produces text output; its HTML/JS mode uses the root `index.html` and `main.js` entrypoints now included here. See [the adapter contract](web/js/components/README.md) and [the Qollab integration notes](docs/QOLLAB_SPIKE.md).
+The repository includes a read-only raw-data inspector and a streaming preprocessing pipeline for the primary Deep Sorting battery dataset. The generated real-data trajectories stay local because the Zenodo record does not state a redistribution license. Task 7 connects the browser workbench to the Python UI API through a local, same-origin HTTP service. The Qollab release package also includes an HTML/JS adapter built on Qollab's documented Python-module imports and `.callPromising(...)` API. See [the adapter contract](web/js/components/README.md) and [the Qollab integration notes](docs/QOLLAB_SPIKE.md).
 
 ## Problem and architecture
 
@@ -37,11 +37,19 @@ QUBO → Ising → Qiskit QAOA (p=1)
 Measured feasible samples and held-out scoring
 ```
 
-The QUBO minimizes weighted squared differences between selected cells for normalized present capacity, resistance, and predicted future capacity. It includes health and forecast-uncertainty terms plus a calibrated `λ(Σxᵢ − K)²` penalty for selecting exactly K cells. Qiskit QAOA optimizes parameters using local Statevector evaluations, then submits one sampling job to the injected backend. The included local path uses `BasicSimulator`.
+The QUBO minimizes weighted squared differences between selected cells for normalized present capacity, resistance, and predicted future capacity. It includes health and forecast-uncertainty terms plus a calibrated `λ(Σxᵢ − K)²` penalty for selecting exactly K cells. Qiskit QAOA optimizes parameters using an ideal local Statevector, transpiles the final measured circuit for the injected Qiskit-compatible backend, then submits one sampling job. Ideal simulators omit device noise; hardware results reflect device noise. The included local path uses `BasicSimulator`.
 
 ## Benchmark result snapshot
 
 Task 6 evaluated 20 fixed-seed N=8, K=4 pools at cycle 16 with a 200-cycle horizon. QAOA found a feasible sample in 20/20 trials and sampled an exact optimum in 17/20; its mean best-sampled objective gap was 0.08948. Mean observed future divergence was 0.07620 for QAOA, 0.07321 for exact trajectory-aware selection, and 0.07672 for SOH sorting. The objective ablation did not support the trajectory-awareness hypothesis on these trials: exact current-only mean OPD was 0.07188 versus 0.07321 for trajectory-aware selection. Mean local QAOA runtime was about 1.51 s, compared with 4.34 ms for exact enumeration. These descriptive results do not establish a quantum speedup or a general improvement. Full metrics and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
+
+## Demo video
+
+The 2-minute-40-second recording script is in
+[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md). It uses a live Qollab simulator
+run or the local `BasicSimulator`, and distinguishes the synthetic UI fixture
+from the aggregate derived-real benchmark. The public video still needs to be
+recorded and published; its URL will be added after publication.
 
 ## Development setup
 
@@ -107,24 +115,29 @@ python scripts/package_qollab_release.py
 ```
 
 The command creates `qollab-task8-app.zip` and
-`qollab-task8-python-smoke.zip`. Upload the app ZIP in HTML/JS mode. It is
-self-contained and uses the bundled synthetic fixture and labeled solver
-replays; the same-origin live bridge is only available through the local
-launcher until Qollab exposes a verified browser-to-Python call surface. The
-Python smoke ZIP runs a synthetic p=1 QAOA check with Qiskit's local
-`BasicSimulator`, prints a JSON runtime/QAOA report, and does not submit an
-IonQ or other remote job. Use that report to verify Qollab's Python environment
-before attempting a platform backend. Project-page copy, a timed video script,
+`qollab-task8-python-smoke.zip`. The app ZIP uses Qollab's documented
+JavaScript-to-Python module bridge for live inventory, evaluation, classical
+solvers, future reveal, and QAOA. QAOA uses the backend selected in Qollab's Run
+dialog and is submitted only after clicking **Run QAOA**; start with a free
+simulator. The synthetic replay remains available if the Python runtime is not
+ready. The separate Python smoke ZIP runs a synthetic p=1 QAOA check with
+Qiskit's local `BasicSimulator`, prints a JSON runtime/QAOA report, and does
+not submit an IonQ or other remote job. Project-page copy, a timed video script,
 and the publication checklist are in `docs/`.
 
 The Task 5 record includes a Qollab Python-runner check using Qiskit's local
 `BasicSimulator`. The Task 8 Python smoke package completed in a clean Qollab
 session on Python 3.14.2/Qiskit 2.5.2, and a second run verified the host's
-injected `BasicSimulator` instance. The HTML/JS page also loaded in Qollab; its
-replay labels, reload reset, and browser console were checked without errors.
-The live browser bridge remains unverified, and the IonQ path has not been
-tested. The hosted browser page labels replay results as replays; do not
-describe them as live QAOA. See
+injected `BasicSimulator` instance. The HTML/JS bridge completed live runs on
+the built-in and AWS simulators, including backend-specific transpilation. No
+IonQ simulator is available in the Qollab QPU list. The
+updated Aria submission was retried through Qollab's documented
+`.callPromising(...)` API, but `qiskit_ionq` still fails at `requests.post()`
+with Emscripten `Failed to fetch`; no submission response, job ID, or measured
+counts were returned. Qollab's [runtime policy](https://qollab.xyz/learn/docs/runtime-environment)
+blocks project `POST` requests, which IonQ job submission requires. Running
+this provider on Qollab needs a Qollab-supported server-side submission path.
+No IonQ hardware result is claimed. See
 [docs/QOLLAB_SPIKE.md](docs/QOLLAB_SPIKE.md) for the exact hosted checks and
 [docs/SUBMISSION_CHECKLIST.md](docs/SUBMISSION_CHECKLIST.md) for current status.
 
@@ -285,6 +298,18 @@ metrics from the source asset. No Qollab backend is used by this command.
 - `data/processed/` — local generated trajectories, provenance, and QA report; cell-level trajectories and the per-file QA report are ignored by Git because redistribution terms are unresolved.
 - `data/fixtures/synthetic_demo.json` — clearly labeled eight-cell synthetic fixture for UI development, not scientific results.
 - `tests/fixtures/` — clearly synthetic adapter fixtures, not benchmark observations.
+
+## Originality, AI assistance, and sources
+
+Pre-build work consisted of problem selection, dataset research, and
+implementation planning. Project implementation, integration, experiments,
+UI, and submission materials were developed during the hackathon build window.
+Codex was used as an AI coding assistant for implementation, debugging, and
+documentation. The project-specific data pipeline, optimization model, QAOA
+engine, benchmark, and interface are implemented in this repository. The
+associated Deep Sorting code release was consulted as a schema and sampling
+reference; no code from it was copied. External data and software are listed in
+[`ATTRIBUTION.md`](ATTRIBUTION.md).
 
 ## License and attribution
 

@@ -2,9 +2,11 @@
 
 `quantumBridge.js` is the browser-facing boundary for Python work. When the
 workbench is opened on `localhost`, `127.0.0.1`, or `::1`, it automatically
-registers the same-origin HTTP adapter served by `run_repackq_web.py`. Other
-hosts remain in fixture/replay mode unless a verified host bootstrap registers
-an adapter. The app does not guess Qollab globals or invocation names.
+registers the same-origin HTTP adapter served by `run_repackq_web.py`. The
+Qollab release builder adds a separate entrypoint adapter based on Qollab's
+documented Python-module import and `.callPromising(...)` API. Other hosts
+remain in fixture/replay mode unless a supported host bootstrap registers an
+adapter.
 
 The adapter methods correspond to these local routes:
 
@@ -37,13 +39,21 @@ delegate to `src/repackq/ui.py`:
 - `reveal_repackq_future(indices, **options)` exposes held-out values only
   after the user chooses Reveal future.
 
-Qollab's Python project mode runs `main.py` and displays text output. For the
-browser workbench, use Qollab's HTML/JS project mode with the root
-`index.html`/`main.js` entrypoints. That page uses the bundled synthetic
-fixture and replay assets unless a verified Qollab bridge is registered. Use
-`python run_repackq_web.py` locally to run the UI and Python API on one origin.
-The QAOA control additionally requires Qiskit Statevector support; classical
-and reveal actions use the Python API independently of that QAOA capability.
+Qollab's Python project mode runs `main.py` and displays text output. The
+HTML/JS release package supplies a Qollab-specific `main.js` and
+`repackq_qollab_bridge.py`; it imports Python functions by module name and calls
+them with `.callPromising(...)`. QAOA receives the backend selected in
+Qollab's Run dialog and submits one sampling call only after the user clicks
+**Run QAOA**. Live runs have completed on Qollab's built-in BasicSimulator and
+AWS simulator. IonQ Aria currently fails before returning a job ID because the
+Qollab runtime blocks the provider's outbound `POST` request; see
+[`docs/QOLLAB_SPIKE.md`](../../../docs/QOLLAB_SPIKE.md).
+The Python wrapper serializes API results as JSON strings before they cross the
+runtime boundary, and the JavaScript adapter parses those strings into ordinary
+browser objects.
+Use `python run_repackq_web.py` locally to run the UI and Python API on one
+origin. The QAOA control requires Qiskit Statevector support; classical and
+reveal actions use the Python API independently of that QAOA capability.
 
 Run `python scripts/package_qollab_release.py` to build
 `qollab-task8-app.zip` and `qollab-task8-python-smoke.zip`. The first archive

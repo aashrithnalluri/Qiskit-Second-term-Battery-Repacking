@@ -8,6 +8,8 @@ loaded only by :func:`reveal_future` after the user requests a reveal.
 from __future__ import annotations
 
 import json
+import time
+import uuid
 from dataclasses import replace
 from pathlib import Path
 from typing import Any, Callable, Sequence
@@ -25,7 +27,8 @@ from repackq.optimization.solvers import (
 from repackq.prediction.metrics import evaluate_pack_metrics
 from repackq.prediction.split import future_tolerance_for_horizon, lookup_future_truth
 from repackq.prediction.trajectory import build_snapshot
-from repackq.quantum.engine import run_qaoa
+from repackq.quantum.engine import QAOAPreparation, complete_qaoa, prepare_qaoa, run_qaoa
+from repackq.quantum.qiskit_compat import transpile_for_backend
 from repackq.data.serialization import trajectories_from_dict
 
 
@@ -34,6 +37,7 @@ _DEFAULT_HORIZON = 200
 _SUPPORTED_HORIZONS = (100, 150, 200)
 _SUPPORTED_PACK_SIZES = (3, 4, 5)
 _DEFAULT_SEED = 20261010
+_QAOA_PENDING: dict[str, tuple[QAOAPreparation, CandidatePool, Any]] = {}
 
 
 def _project_root() -> Path:
@@ -242,6 +246,98 @@ def run_live_qaoa(
     result["pool_id"] = pool.pool_id
     result["exact_result"] = exact.to_dict()
     return result
+
+
+def prepare_live_qaoa_circuit(
+    *,
+    backend: Any,
+    horizon_cycles: int = _DEFAULT_HORIZON,
+    pack_size_k: int = 4,
+    objective_mode: str = "trajectory_aware",
+    shots: int = 1024,
+    reps: int = 1,
+    optimizer_mode: str = "grid",
+    max_evaluations: int = 121,
+) -> Any:
+    """Optimize locally and compile one measured circuit for the selected backend."""
+
+    if backend is None or not callable(getattr(backend, "run", None)):
+        raise TypeError("selected backend must provide run(circuit, shots=...)")
+
+    pool, instance = _problem(
+        horizon_cycles=horizon_cycles,
+        pack_size_k=pack_size_k,
+        objective_mode=objective_mode,
+    )
+    exact = exact_enumeration(instance)
+    exact_vectors = [
+        tuple(1 if bit_index in selected else 0 for bit_index in range(instance.n))
+        for selected in exact.metadata["tied_optima"]
+    ]
+    preparation = prepare_qaoa(
+        instance,
+        shots=shots,
+        reps=reps,
+        optimizer_mode=optimizer_mode,
+        max_evaluations=max_evaluations,
+        exact_optimal_bitstrings=exact_vectors,
+    )
+    transpilation_started = time.perf_counter()
+    transpiled = transpile_for_backend(
+        preparation.circuit,
+        backend,
+        seed=_DEFAULT_SEED,
+    )
+    preparation.circuit_info["transpiled_depth"] = transpiled.depth()
+    preparation.circuit_info["transpiled_qubits"] = transpiled.num_qubits
+    preparation.circuit_info["transpiled_size"] = transpiled.size()
+    preparation.timings_ms["transpilation_ms"] = (
+        time.perf_counter() - transpilation_started
+    ) * 1000.0
+    # Keep the backend-specific compiled circuit for Qollab's single sampling
+    # call. It retains the original classical register used to decode counts.
+    preparation.circuit = transpiled
+    run_id = uuid.uuid4().hex
+    preparation.circuit.name = f"repackq_qaoa_{run_id}"
+    _QAOA_PENDING[run_id] = (preparation, pool, exact)
+    return preparation.circuit
+
+
+def complete_live_qaoa_circuit(
+    circuit_name: str,
+    counts: dict[str, int],
+    backend_name: str,
+    backend_sampling_ms: float,
+) -> dict[str, Any]:
+    """Analyze Qollab JavaScript-submitted counts for a prepared circuit."""
+
+    prefix = "repackq_qaoa_"
+    if not str(circuit_name).startswith(prefix):
+        raise ValueError("QAOA circuit identifier is invalid")
+    run_id = str(circuit_name)[len(prefix):]
+    pending = _QAOA_PENDING.pop(run_id, None)
+    if pending is None:
+        raise ValueError("QAOA preparation expired or was already finalized")
+    preparation, pool, exact = pending
+    result = complete_qaoa(
+        preparation,
+        counts,
+        str(backend_name),
+        backend_sampling_ms=float(backend_sampling_ms),
+    ).to_dict()
+    result["data_classification"] = "synthetic-fixture"
+    result["pool_id"] = pool.pool_id
+    result["exact_result"] = exact.to_dict()
+    return result
+
+
+def discard_live_qaoa_circuit(circuit_name: str) -> bool:
+    """Release local preparation state when Qollab sampling fails."""
+
+    prefix = "repackq_qaoa_"
+    if not str(circuit_name).startswith(prefix):
+        return False
+    return _QAOA_PENDING.pop(str(circuit_name)[len(prefix):], None) is not None
 
 
 def _synthetic_future_observations(

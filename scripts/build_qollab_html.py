@@ -148,6 +148,200 @@ def _indent(value: str, spaces: int) -> str:
     return "\n".join(prefix + line if line else "" for line in value.rstrip().splitlines())
 
 
+def build_qollab_main_js() -> str:
+    """Build the Qollab module entrypoint with its documented Python bridge."""
+
+    adapter = r'''import * as repackqPython from "repackq_qollab_bridge";
+
+function qollabSelectedBackend() {
+  try {
+    if (typeof backend !== "undefined") return backend;
+  } catch (_) {
+    // Some Qollab runtimes expose the selected backend only on globalThis.
+  }
+  return globalThis.backend ?? null;
+}
+
+async function callRePackQPython(functionName, args) {
+  const pythonFunction = repackqPython[functionName];
+  if (!pythonFunction || typeof pythonFunction.callPromising !== "function") {
+    throw new Error(`Qollab could not call Python function ${functionName} with callPromising().`);
+  }
+  try {
+    const result = await pythonFunction.callPromising(...args);
+    const converted = result && typeof result.toJs === "function" ? result.toJs() : result;
+    if (typeof converted === "string") {
+      try {
+        return JSON.parse(converted);
+      } catch (_) {
+        throw new Error(`Python function ${functionName} returned invalid JSON.`);
+      }
+    }
+    return converted;
+  } catch (error) {
+    console.error(`RePack-Q Qollab Python call ${functionName} failed:`, error);
+    throw error;
+  }
+}
+
+async function callRePackQPythonRaw(functionName, args) {
+  const pythonFunction = repackqPython[functionName];
+  if (!pythonFunction || typeof pythonFunction.callPromising !== "function") {
+    throw new Error(`Qollab could not call Python function ${functionName} with callPromising().`);
+  }
+  return await pythonFunction.callPromising(...args);
+}
+
+function qollabBackendName(selectedBackend) {
+  let reportedName = "";
+  try {
+    const value = selectedBackend.name;
+    reportedName = String(typeof value === "function" ? value.call(selectedBackend) : (value ?? ""));
+  } catch (_) {
+    reportedName = "";
+  }
+  const genericNames = new Set(["", "default", "backend", "qollab_selected_backend"]);
+  if (!genericNames.has(reportedName.trim().toLowerCase())) return reportedName;
+
+  // Some Qiskit providers expose the generic name "default". Keep that name
+  // but append the backend class so the inspector still identifies its
+  // provider implementation without inspecting credentials or private state.
+  try {
+    const pythonClass = selectedBackend.__class__;
+    const className = pythonClass?.__name__;
+    const moduleName = pythonClass?.__module__;
+    if (className) {
+      const moduleLeaf = String(moduleName ?? "").split(".").at(-1);
+      const implementation = moduleLeaf && moduleLeaf !== "" ? `${moduleLeaf}.${className}` : String(className);
+      return reportedName ? `${reportedName} (${implementation})` : implementation;
+    }
+  } catch (_) {
+    // Fall back to the JavaScript proxy's constructor name below.
+  }
+  try {
+    const constructorName = selectedBackend?.constructor?.name;
+    if (constructorName && constructorName !== "Object" && constructorName !== "PyProxy") {
+      return reportedName ? `${reportedName} (${constructorName})` : constructorName;
+    }
+  } catch (_) {
+    // The Qiskit proxy may hide its JavaScript constructor.
+  }
+  return reportedName || "qollab_selected_backend";
+}
+
+function qollabProblemArgs(options = {}) {
+  return [
+    Number(options.horizon_cycles ?? 200),
+    Number(options.pack_size_k ?? 4),
+  ];
+}
+
+globalThis.__REPACKQ_RUNTIME_ADAPTER__ = {
+  async getCapabilities() {
+    try {
+      const capabilities = await callRePackQPython("get_capabilities", []);
+      console.log("RePack-Q Qollab bridge capabilities:", capabilities);
+      return capabilities;
+    } catch (error) {
+      return {
+        available: false,
+        interactive: false,
+        bridge: "qollab-python-callpromising-v1",
+        qiskit_available: false,
+        statevector_available: false,
+        message: error?.message || "Qollab could not load the RePack-Q Python module.",
+      };
+    }
+  },
+  async getDemoState(options = {}) {
+    const inventory = await callRePackQPython("get_demo_state", qollabProblemArgs(options));
+    console.log("RePack-Q candidate inventory response:", {
+      response_type: Object.prototype.toString.call(inventory),
+      data_classification: inventory?.data_classification,
+      future_disclosed: inventory?.future_disclosed,
+      candidate_count: inventory?.candidate_ids?.length,
+      snapshot_count: inventory?.snapshots?.length,
+      top_level_keys: inventory && typeof inventory === "object" ? Object.keys(inventory) : [],
+    });
+    return inventory;
+  },
+  async evaluateSelection(indices, options = {}) {
+    return callRePackQPython("evaluate_selection", [
+      indices,
+      ...qollabProblemArgs(options),
+      String(options.objective_mode ?? "trajectory_aware"),
+    ]);
+  },
+  async runClassicalComparison(options = {}) {
+    return callRePackQPython("run_classical_comparison", [
+      ...qollabProblemArgs(options),
+      String(options.objective_mode ?? "trajectory_aware"),
+    ]);
+  },
+  async runQaoa({ onStage, ...options } = {}) {
+    const selectedBackend = qollabSelectedBackend();
+    if (!selectedBackend || typeof selectedBackend.run !== "function") {
+      throw new Error("Qollab did not expose the selected Qiskit backend to this project run. Choose a simulator in Qollab's Run dialog and retry.");
+    }
+    onStage?.("running_python");
+    let circuit = null;
+    let circuitName = "";
+    try {
+      circuit = await callRePackQPythonRaw("prepare_qaoa_circuit", [
+        ...qollabProblemArgs(options),
+        String(options.objective_mode ?? "trajectory_aware"),
+        Number(options.shots ?? 1024),
+        Number(options.reps ?? 1),
+        String(options.optimizer_mode ?? "grid"),
+        Number(options.max_evaluations ?? 121),
+        selectedBackend,
+      ]);
+      circuitName = String(circuit.name ?? "");
+      if (!circuitName.startsWith("repackq_qaoa_")) {
+        throw new Error("Python preparation returned a circuit without its RePack-Q run identifier.");
+      }
+
+      // Qollab requires Python functions that submit provider jobs to run via
+      // callPromising(). Python has optimized and transpiled for this selected
+      // backend; this call submits exactly once and returns measured counts.
+      onStage?.("parameter_optimization");
+      onStage?.("sampling");
+      const samplingStarted = performance.now();
+      const submitted = await callRePackQPython("submit_qaoa_circuit", [
+        circuit,
+        selectedBackend,
+        Number(options.shots ?? 1024),
+      ]);
+      const samplingMs = performance.now() - samplingStarted;
+      const result = await callRePackQPython("complete_qaoa_circuit", [
+        circuitName,
+        JSON.stringify(submitted.counts),
+        qollabBackendName(selectedBackend),
+        samplingMs,
+      ]);
+      console.log("RePack-Q live QAOA result:", result);
+      onStage?.("complete");
+      return result;
+    } catch (error) {
+      console.error("RePack-Q live QAOA failed:", error);
+      if (circuitName) {
+        try {
+          await callRePackQPython("discard_qaoa_circuit", [circuitName]);
+        } catch (cleanupError) {
+          console.warn("RePack-Q could not clear a failed QAOA preparation:", cleanupError);
+        }
+      }
+      throw error;
+    }
+  },
+  async revealFuture(indices, options = {}) {
+    return callRePackQPython("reveal_future", [indices, ...qollabProblemArgs(options)]);
+  },
+};
+'''
+    return adapter + "\n" + build_main_js()
+
+
 def build_index_html() -> str:
     html = HTML_FILE.read_text(encoding="utf-8")
     styles = STYLES_FILE.read_text(encoding="utf-8")

@@ -160,6 +160,27 @@ class QAOAResult:
         }
 
 
+@dataclass
+class QAOAPreparation:
+    """Locally optimized measured circuit awaiting exactly one sampling job."""
+
+    instance: OptimizationInstance
+    qubo: Any
+    params: QAOAParams
+    expected_energy: float
+    circuit: Any
+    circuit_info: dict[str, Any]
+    optimal_vectors: set[tuple[int, ...]] | None
+    exact_optimal_objective: float | None
+    future_truth: Sequence[FutureTruth] | None
+    shots: int
+    reps: int
+    optimizer: dict[str, Any]
+    penalty: dict[str, Any]
+    timings_ms: dict[str, float]
+    started_at: float
+
+
 def _initial_params(reps: int) -> QAOAParams:
     return QAOAParams(
         gamma=tuple(math.pi / 4.0 for _ in range(reps)),
@@ -427,29 +448,19 @@ def _make_sample(
     )
 
 
-def run_qaoa(
+def prepare_qaoa(
     instance: OptimizationInstance,
-    backend: Any | None = None,
     *,
     shots: int = 1024,
     reps: int = 1,
     optimizer_mode: str = "auto",
     max_evaluations: int = 160,
     penalty_multiplier: float = 4.0,
-    single_backend_job: bool = True,
     exact_optimal_bitstrings: Sequence[Sequence[int]] | None = None,
     future_truth: Sequence[FutureTruth] | None = None,
-    simulator_seed: int | None = None,
-    transpiler_seed: int | None = None,
     on_stage: Callable[[str], None] | None = None,
-) -> QAOAResult:
-    """Run QAOA with local parameter search and one final backend sampling job.
-
-    If ``backend`` is omitted, Qiskit's bundled ``BasicSimulator`` is used.
-    The backend is injected; this module never creates credentials/providers.
-    ``future_truth`` is passed only to post-measurement result metrics and is
-    never consulted while constructing the QUBO, circuit, or parameters.
-    """
+) -> QAOAPreparation:
+    """Build and optimize locally, then return one measured circuit to sample."""
 
     if isinstance(shots, bool) or not isinstance(shots, int) or shots < 1:
         raise ValueError("shots must be a positive integer")
@@ -457,20 +468,12 @@ def run_qaoa(
         raise ValueError("reps must be a positive integer")
     if instance.n > 12:
         raise ValueError("QAOA statevector and mandatory exhaustive mapping check support N <= 12")
-    if not isinstance(single_backend_job, bool):
-        raise ValueError("single_backend_job must be a boolean")
-    if not single_backend_job:
-        raise ValueError("Task 5 supports local optimization followed by one backend sampling job")
-    for value, name in ((simulator_seed, "simulator_seed"), (transpiler_seed, "transpiler_seed")):
-        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
-            raise ValueError(f"{name} must be an integer or None")
 
     optimal_vectors: set[tuple[int, ...]] | None = None
     exact_optimal_objective: float | None = None
     if exact_optimal_bitstrings is not None:
         optimal_vectors = {
-            tuple(indices_from_bits(bits, instance.n))
-            for bits in exact_optimal_bitstrings
+            tuple(indices_from_bits(bits, instance.n)) for bits in exact_optimal_bitstrings
         }
         if not optimal_vectors:
             raise ValueError("exact_optimal_bitstrings must contain at least one optimum")
@@ -486,9 +489,8 @@ def run_qaoa(
         if set(truth_ids) != set(instance.candidate_ids):
             raise ValueError("future truth must contain exactly the candidate pool cells")
 
-    total_started = time.perf_counter()
+    started_at = time.perf_counter()
     timings: dict[str, float] = {}
-
     if on_stage is not None:
         on_stage("preparing")
 
@@ -525,39 +527,93 @@ def run_qaoa(
     )
     timings["parameter_optimization_ms"] = optimization.elapsed_ms
 
-    if on_stage is not None:
-        on_stage("sampling")
-    stage_started = time.perf_counter()
     bound = bind_qaoa_parameters(
         ansatz,
         gamma=optimization.params.gamma,
         beta=optimization.params.beta,
     )
-    expected_energy = optimization.expected_energy
     circuit = bound.copy()
     circuit.name = "repackq_qaoa_measured"
     circuit.measure_all()
     circuit_info["measurement_depth"] = circuit.depth()
-    transpiled = transpile_for_backend(circuit, backend, seed=transpiler_seed) if backend is not None else None
-    if backend is None:
-        from qiskit.providers.basic_provider import BasicSimulator
 
-        backend = BasicSimulator()
-        transpiled = transpile_for_backend(circuit, backend, seed=transpiler_seed)
-    circuit_info["transpiled_depth"] = transpiled.depth()
-    circuit_info["transpiled_qubits"] = transpiled.num_qubits
-    circuit_info["transpiled_size"] = transpiled.size()
-    timings["transpilation_ms"] = (time.perf_counter() - stage_started) * 1000.0
-
-    stage_started = time.perf_counter()
-    counts, backend_name = _run_backend_once(
-        backend,
-        transpiled,
+    return QAOAPreparation(
+        instance=instance,
+        qubo=qubo,
+        params=optimization.params,
+        expected_energy=optimization.expected_energy,
+        circuit=circuit,
+        circuit_info=circuit_info,
+        optimal_vectors=optimal_vectors,
+        exact_optimal_objective=exact_optimal_objective,
+        future_truth=future_truth,
         shots=shots,
-        simulator_seed=simulator_seed,
+        reps=reps,
+        optimizer={
+            "mode": optimization.method,
+            "evaluation_model": "ideal_local_statevector",
+            "evaluations": optimization.evaluations,
+            "evaluation_budget": optimization.budget,
+            "initial_expected_energy": optimization.initial_expected_energy,
+            "optimized_expected_energy": optimization.expected_energy,
+            "success": optimization.success,
+            "message": optimization.message,
+            "seed": "deterministic_initial_point",
+        },
+        penalty={
+            "cardinality_penalty": qubo.cardinality_penalty,
+            "penalty_multiplier": qubo.penalty_multiplier,
+            "calibration_doublings": qubo.calibration_doublings,
+            "base_pair_scale": qubo.base_pair_scale,
+            "global_minimum_feasible": True,
+        },
+        timings_ms=timings,
+        started_at=started_at,
     )
-    timings["backend_sampling_ms"] = (time.perf_counter() - stage_started) * 1000.0
+
+
+def _normalize_counts(counts: Any, width: int) -> dict[str, int]:
+    if not isinstance(counts, dict):
+        raise TypeError("backend counts must be a mapping")
+    normalized: dict[str, int] = {}
+    for key, raw_count in counts.items():
+        if isinstance(raw_count, bool) or not isinstance(raw_count, int) or raw_count < 0:
+            raise ValueError("backend counts must be nonnegative integers")
+        if raw_count == 0:
+            continue
+        if isinstance(key, bool):
+            raise ValueError("boolean measurement keys are invalid")
+        if isinstance(key, int):
+            if not 0 <= key < 2**width:
+                raise ValueError(f"integer measurement key {key} is outside circuit width")
+            key_text = format(key, f"0{width}b")
+        else:
+            key_text = str(key)
+        bits = qiskit_key_to_bits(key_text, width)
+        canonical = bits_to_qiskit_key(bits)
+        normalized[canonical] = normalized.get(canonical, 0) + raw_count
+    if not normalized or sum(normalized.values()) <= 0:
+        raise ValueError("backend returned no measured shots")
+    return normalized
+
+
+def complete_qaoa(
+    preparation: QAOAPreparation,
+    counts: Any,
+    backend_name: str,
+    *,
+    backend_sampling_ms: float = 0.0,
+) -> QAOAResult:
+    """Analyze measured counts for a previously prepared QAOA circuit."""
+
+    counts = _normalize_counts(counts, int(preparation.circuit.num_clbits))
+    if not math.isfinite(float(backend_sampling_ms)) or backend_sampling_ms < 0:
+        raise ValueError("backend_sampling_ms must be a finite nonnegative number")
+    timings = dict(preparation.timings_ms)
+    timings["backend_sampling_ms"] = float(backend_sampling_ms)
     stage_started = time.perf_counter()
+    instance = preparation.instance
+    qubo = preparation.qubo
     total_observed = sum(counts.values())
     probabilities = {key: count / total_observed for key, count in sorted(counts.items())}
     samples = tuple(
@@ -586,18 +642,17 @@ def run_qaoa(
         else None
     )
     feasible_mass = sum(sample.count for sample in feasible_samples) / total_observed
-
     optimum_mass: float | None = None
-    if optimal_vectors is not None:
+    if preparation.optimal_vectors is not None:
         optimum_mass = sum(
             sample.count
             for sample in samples
-            if sample.feasible and sample.selected_indices in optimal_vectors
+            if sample.feasible and sample.selected_indices in preparation.optimal_vectors
         ) / total_observed
 
     gap: float | None = None
-    if best_feasible is not None and exact_optimal_objective is not None:
-        gap = best_feasible.objective_value - exact_optimal_objective
+    if best_feasible is not None and preparation.exact_optimal_objective is not None:
+        gap = best_feasible.objective_value - preparation.exact_optimal_objective
         if abs(gap) < 1e-12:
             gap = 0.0
 
@@ -607,29 +662,29 @@ def run_qaoa(
             instance,
             best_feasible.selected_indices,
             algorithm="qaoa_best_feasible_sample",
-            runtime_ms=(time.perf_counter() - total_started) * 1000.0,
-            future_truth=future_truth,
+            runtime_ms=(time.perf_counter() - preparation.started_at) * 1000.0,
+            future_truth=preparation.future_truth,
             metadata={
                 "qaoa_bitstring": best_feasible.bitstring,
                 "qaoa_sample_count": best_feasible.count,
                 "qaoa_sample_probability": best_feasible.probability,
-                "qaoa_expected_energy": expected_energy,
+                "qaoa_expected_energy": preparation.expected_energy,
                 "backend": backend_name,
                 "recommended_sample_rule": "minimum_objective_among_feasible_measured_states",
             },
         )
     timings["result_diagnostics_ms"] = (time.perf_counter() - stage_started) * 1000.0
-    timings["total_ms"] = (time.perf_counter() - total_started) * 1000.0
+    timings["total_ms"] = (time.perf_counter() - preparation.started_at) * 1000.0
 
-    result = QAOAResult(
+    return QAOAResult(
         feasible=best_feasible is not None,
         status_message=(
             "QAOA produced at least one feasible K-cell sample."
             if best_feasible is not None
             else "No feasible K-cell sample observed."
         ),
-        params=optimization.params,
-        expected_energy=expected_energy,
+        params=preparation.params,
+        expected_energy=preparation.expected_energy,
         raw_counts=counts,
         probabilities=probabilities,
         feasible_samples=feasible_samples,
@@ -638,34 +693,84 @@ def run_qaoa(
         cardinality_violation_sample=violation_sample,
         feasible_probability_mass=feasible_mass,
         optimum_probability_mass=optimum_mass,
-        exact_optimal_objective_value=exact_optimal_objective,
+        exact_optimal_objective_value=preparation.exact_optimal_objective,
         best_feasible_optimality_gap=gap,
         recommended_result=recommended,
         backend=backend_name,
-        shots_requested=shots,
+        shots_requested=preparation.shots,
         shots_observed=total_observed,
-        reps=reps,
-        optimizer={
-            "mode": optimization.method,
-            "evaluations": optimization.evaluations,
-            "evaluation_budget": optimization.budget,
-            "initial_expected_energy": optimization.initial_expected_energy,
-            "optimized_expected_energy": optimization.expected_energy,
-            "success": optimization.success,
-            "message": optimization.message,
-            "seed": "deterministic_initial_point",
-        },
-        circuit=circuit_info,
-        penalty={
-            "cardinality_penalty": qubo.cardinality_penalty,
-            "penalty_multiplier": qubo.penalty_multiplier,
-            "calibration_doublings": qubo.calibration_doublings,
-            "base_pair_scale": qubo.base_pair_scale,
-            "global_minimum_feasible": True,
-        },
+        reps=preparation.reps,
+        optimizer=dict(preparation.optimizer),
+        circuit=dict(preparation.circuit_info),
+        penalty=dict(preparation.penalty),
         timings_ms=timings,
         backend_jobs_submitted=1,
         single_backend_job=True,
+    )
+
+
+def run_qaoa(
+    instance: OptimizationInstance,
+    backend: Any | None = None,
+    *,
+    shots: int = 1024,
+    reps: int = 1,
+    optimizer_mode: str = "auto",
+    max_evaluations: int = 160,
+    penalty_multiplier: float = 4.0,
+    single_backend_job: bool = True,
+    exact_optimal_bitstrings: Sequence[Sequence[int]] | None = None,
+    future_truth: Sequence[FutureTruth] | None = None,
+    simulator_seed: int | None = None,
+    transpiler_seed: int | None = None,
+    on_stage: Callable[[str], None] | None = None,
+) -> QAOAResult:
+    """Run QAOA with local optimization and one final backend sampling job."""
+
+    if not isinstance(single_backend_job, bool):
+        raise ValueError("single_backend_job must be a boolean")
+    if not single_backend_job:
+        raise ValueError("Task 5 supports local optimization followed by one backend sampling job")
+    for value, name in ((simulator_seed, "simulator_seed"), (transpiler_seed, "transpiler_seed")):
+        if value is not None and (isinstance(value, bool) or not isinstance(value, int)):
+            raise ValueError(f"{name} must be an integer or None")
+
+    preparation = prepare_qaoa(
+        instance,
+        shots=shots,
+        reps=reps,
+        optimizer_mode=optimizer_mode,
+        max_evaluations=max_evaluations,
+        penalty_multiplier=penalty_multiplier,
+        exact_optimal_bitstrings=exact_optimal_bitstrings,
+        future_truth=future_truth,
+        on_stage=on_stage,
+    )
+    if on_stage is not None:
+        on_stage("sampling")
+    stage_started = time.perf_counter()
+    if backend is None:
+        from qiskit.providers.basic_provider import BasicSimulator
+
+        backend = BasicSimulator()
+    transpiled = transpile_for_backend(preparation.circuit, backend, seed=transpiler_seed)
+    preparation.circuit_info["transpiled_depth"] = transpiled.depth()
+    preparation.circuit_info["transpiled_qubits"] = transpiled.num_qubits
+    preparation.circuit_info["transpiled_size"] = transpiled.size()
+    preparation.timings_ms["transpilation_ms"] = (time.perf_counter() - stage_started) * 1000.0
+
+    stage_started = time.perf_counter()
+    counts, backend_name = _run_backend_once(
+        backend,
+        transpiled,
+        shots=shots,
+        simulator_seed=simulator_seed,
+    )
+    result = complete_qaoa(
+        preparation,
+        counts,
+        backend_name,
+        backend_sampling_ms=(time.perf_counter() - stage_started) * 1000.0,
     )
     if on_stage is not None:
         on_stage("complete")

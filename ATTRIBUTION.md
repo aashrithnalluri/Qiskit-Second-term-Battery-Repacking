@@ -15,4 +15,4 @@ schema and diagnostic-cycle cadence.
 
 ## Originality disclosure
 
-Pre-build work consisted of problem selection, dataset research, and implementation planning. Project implementation, integration, experiments, UI, and submission materials were developed during the hackathon build window. Public datasets, Qiskit, and cited open-source references are used as a data source, software dependency, or research reference and are attributed. No source code from the associated Deep Sorting code release was copied.
+Pre-build work consisted of problem selection, dataset research, and implementation planning. Project implementation, integration, experiments, UI, and submission materials were developed during the hackathon build window. Codex was used as an AI coding assistant for implementation, debugging, and documentation. Public datasets, Qiskit, and cited open-source references are used as a data source, software dependency, or research reference and are attributed. No source code from the associated Deep Sorting code release was copied.

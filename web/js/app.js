@@ -75,6 +75,7 @@ const state = {
   qaoaResult: null,
   qaoaStatus: "idle",
   qaoaStage: null,
+  qaoaErrorDetail: null,
   futureRevealed: false,
   futureReveal: null,
   runtimeCapabilities: null,
@@ -182,6 +183,7 @@ function invalidateProblem(message = "Results reset because the optimization pro
   state.qaoaResult = null;
   state.qaoaStatus = "idle";
   state.qaoaStage = null;
+  state.qaoaErrorDetail = null;
   state.futureRevealed = false;
   state.futureReveal = null;
   state.manualEvaluation = null;
@@ -209,7 +211,10 @@ async function refreshDemoState(requestId = null) {
   if (state.runtimeConnected) {
     const response = await quantumBridge.getDemoState(currentProblemOptions());
     if (!response || response.data_classification !== "synthetic-fixture" || response.future_disclosed) {
-      throw new Error("The runtime returned an invalid pre-reveal candidate pool.");
+      console.error("RePack-Q rejected an invalid pre-reveal candidate pool:", response);
+      throw new Error(
+        `Python returned an invalid inventory payload (classification=${String(response?.data_classification)}, future_disclosed=${String(response?.future_disclosed)}).`,
+      );
     }
     if (requestId !== null && requestId !== state.problemRequestId) return;
     state.demoState = response;
@@ -382,7 +387,7 @@ function decodeQiskitCountKey(key, qubitCount) {
 }
 
 function renderQaoa() {
-  const active = ["preparing", "parameter_optimization", "sampling"].includes(state.qaoaStatus);
+  const active = ["preparing", "parameter_optimization", "sampling", "running_python"].includes(state.qaoaStatus);
   const result = state.qaoaResult;
   const stageIndex = QAOA_STAGES.indexOf(state.qaoaStage);
   dom.quantumState.dataset.status = active ? "active" : (state.qaoaStatus === "complete" ? "complete" : (state.qaoaStatus === "error" ? "error" : "idle"));
@@ -391,6 +396,7 @@ function renderQaoa() {
     preparing: "Preparing QUBO and QAOA circuit",
     parameter_optimization: "Optimizing parameters with local statevectors",
     sampling: "Sampling the final circuit once",
+    running_python: "Running QAOA in Qollab Python; internal stage is unavailable",
     complete: result?.mode === "precomputed-synthetic-replay" ? "Synthetic QAOA replay loaded" : "QAOA run complete",
     error: "QAOA run failed",
   };
@@ -401,10 +407,10 @@ function renderQaoa() {
   });
   dom.runQaoa.disabled = active || state.busy || !state.demoState || (!liveQaoaReady() && !state.staticQaoaReplay);
   dom.runQaoa.innerHTML = active
-    ? `<span>${state.qaoaStage === "parameter_optimization" ? "Optimizing parameters" : state.qaoaStage === "sampling" ? "Sampling one circuit" : "Preparing QAOA"}</span><span aria-hidden="true">⌁</span>`
+    ? `<span>${state.qaoaStage === "parameter_optimization" ? "Optimizing parameters" : state.qaoaStage === "sampling" ? "Sampling one circuit" : state.qaoaStage === "running_python" ? "Running QAOA in Python" : "Preparing QAOA"}</span><span aria-hidden="true">⌁</span>`
     : `<span>${liveQaoaReady() ? "Run QAOA" : (result?.mode === "precomputed-synthetic-replay" ? "Reload QAOA replay" : "View QAOA replay")}</span><span aria-hidden="true">⌁</span>`;
   dom.qaoaNote.textContent = liveQaoaReady()
-    ? "Live p=1 QAOA uses local statevector optimization, then one final backend sampling call."
+    ? "Parameters are optimized on an ideal local statevector, then one backend-specific compiled circuit is sampled. Hardware counts include device noise; simulator behavior follows its configured noise model."
     : state.runtimeConnected
       ? "This runtime does not report Qiskit Statevector support. The replay is precomputed and synthetic."
       : "This is a precomputed synthetic BasicSimulator replay. Connect the verified Python bridge to run QAOA live.";
@@ -415,9 +421,19 @@ function renderQaoa() {
     dom.inspectorShots.textContent = "—";
     dom.feasibleMass.textContent = "Feasible mass —";
     dom.probabilityChart.innerHTML = `<div class="chart-empty">Run QAOA to inspect measured bitstrings.</div>`;
-    dom.qaoaDetails.textContent = state.qaoaStatus === "error"
-      ? "The backend did not return a usable result. Classical results remain available; no replay was substituted."
-      : "Gamma, beta, penalty, measured states, and circuit metadata appear here after a run.";
+    if (state.qaoaStatus === "error") {
+      dom.qaoaDetails.replaceChildren();
+      const details = document.createElement("details");
+      details.className = "qaoa-error-details";
+      const summary = document.createElement("summary");
+      summary.textContent = "Show full Python error (common credential formats redacted)";
+      const pre = document.createElement("pre");
+      pre.textContent = state.qaoaErrorDetail || "No error details were returned.";
+      details.append(summary, pre);
+      dom.qaoaDetails.append(details);
+    } else {
+      dom.qaoaDetails.textContent = "Gamma, beta, penalty, measured states, and circuit metadata appear here after a run.";
+    }
     return;
   }
   const circuit = result.circuit ?? {};
@@ -530,18 +546,43 @@ function render() {
   renderToast();
 }
 
-function friendlyError(error, action) {
+function safeErrorSummary(error) {
+  const rawName = String(error?.name ?? "Error");
+  const name = rawName.replace(/[^\w.-]/g, "").slice(0, 48) || "Error";
+  let message = String(error?.message ?? error ?? "Unknown error");
+  message = message
+    .replace(/\b(api[-_ ]?key|access[-_ ]?token|token|authorization)\b(\s*[:=]\s*|\s+)[^\s,;]+/gi, "$1$2[redacted]")
+    .replace(/\bBearer\s+[A-Za-z0-9._~+/-]+=*/gi, "Bearer [redacted]")
+    .replace(/\b(?:sk|qk|ionq)_[A-Za-z0-9_-]{12,}\b/gi, "[redacted credential]")
+    .slice(0, 6000);
+  return `${name}: ${message || "No error message was provided."}`;
+}
+
+function safeErrorHeadline(error) {
+  const lines = safeErrorSummary(error).split(/\r?\n/).filter(Boolean);
+  return (lines.at(-1) ?? "Unknown error").replace(/\s+/g, " ").slice(0, 180);
+}
+
+function friendlyError(error, action, stage = "") {
   const code = error?.code ?? error?.name ?? "";
   const messages = {
     QiskitUnavailableError: "Qiskit is unavailable in this Python runtime. Classical solvers and benchmark replay remain available.",
     TimeoutError: "The Python runtime did not respond in time. Try the run again when the runtime is ready.",
     BackendError: "The selected backend could not complete the sampling request. No replay result was substituted.",
   };
+  if (action === "qaoa" && code !== "QiskitUnavailableError") {
+    const stageNames = {
+      preparing: "Prepare",
+      parameter_optimization: "Optimize",
+      sampling: "Sample",
+      running_python: "the Qollab Python call (internal stage unavailable)",
+    };
+    const stageText = stageNames[stage] ? ` during ${stageNames[stage]}` : "";
+    return `QAOA could not complete${stageText} (${safeErrorHeadline(error)}). Full error details are in the QAOA inspector. Classical results remain visible; no replay result was substituted.`;
+  }
   return messages[code] ?? (action === "reveal"
     ? "The held-out fixture could not be loaded. No future values were added to the current results."
-    : action === "qaoa"
-      ? "QAOA could not complete. Classical results remain visible; no replay result was substituted."
-      : "The requested solver action could not complete. Check the Python runtime connection and try again.");
+    : "The requested solver action could not complete. Check the Python runtime connection and try again.");
 }
 
 async function loadClassicalResults() {
@@ -572,7 +613,7 @@ async function loadClassicalResults() {
 }
 
 async function loadQaoa() {
-  if (["preparing", "parameter_optimization", "sampling"].includes(state.qaoaStatus)) return;
+  if (["preparing", "parameter_optimization", "sampling", "running_python"].includes(state.qaoaStatus)) return;
   state.qaoaResult = null;
   if (!liveQaoaReady()) {
     if (state.horizonCycles !== 200 || state.packSizeK !== 4 || state.objectiveMode !== "trajectory_aware" || !state.staticQaoaReplay) {
@@ -592,6 +633,7 @@ async function loadQaoa() {
   }
   state.qaoaStatus = "preparing";
   state.qaoaStage = "preparing";
+  state.qaoaErrorDetail = null;
   state.busy = true;
   render();
   try {
@@ -602,7 +644,7 @@ async function loadQaoa() {
       optimizer_mode: "grid",
       max_evaluations: 121,
       onStage: (stage) => {
-        if (!QAOA_STAGES.includes(stage) || stage === "complete") return;
+        if ((!QAOA_STAGES.includes(stage) && stage !== "running_python") || stage === "complete") return;
         state.qaoaStatus = stage;
         state.qaoaStage = stage;
         render();
@@ -611,13 +653,16 @@ async function loadQaoa() {
     state.qaoaResult = result;
     state.qaoaStage = "complete";
     state.qaoaStatus = "complete";
+    state.qaoaErrorDetail = null;
     if (!state.qaoaResult) throw new Error("No QAOA result was returned.");
     setStatus("Live QAOA completed; future values remain hidden.", "success");
   } catch (error) {
+    const failedStage = state.qaoaStage;
+    state.qaoaErrorDetail = safeErrorSummary(error);
     state.qaoaResult = null;
     state.qaoaStatus = "error";
     state.qaoaStage = null;
-    setStatus(friendlyError(error, "qaoa"), "error");
+    setStatus(friendlyError(error, "qaoa", failedStage), "error");
     pushToast("QAOA did not complete.", "error");
   } finally {
     state.busy = false;
@@ -886,7 +931,19 @@ async function initialize() {
       : "Synthetic interaction fixture loaded. Benchmark results below are replayed aggregate data.", "success");
   } catch (error) {
     state.demoState = null;
-    setStatus("The candidate inventory could not load. Reload the page or check the project assets.", "error");
+    console.error("RePack-Q candidate inventory could not load:", error);
+    const errorText = String(error?.message ?? error?.stack ?? error?.name ?? "unknown error")
+      .replace(/\u001b\[[0-9;]*m/g, "");
+    const errorLines = errorText.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+    let detail = errorLines.at(-1) ?? "unknown error";
+    for (let index = errorLines.length - 1; index >= 0; index -= 1) {
+      if (/^[A-Za-z_][\w.]*Error:|^[A-Za-z_][\w.]*Exception:/.test(errorLines[index])) {
+        detail = errorLines[index];
+        break;
+      }
+    }
+    detail = detail.slice(0, 320);
+    setStatus(`Candidate inventory failed: ${detail}`, "error");
   }
   if (!state.staticClassical) {
     state.classicalResults = null;

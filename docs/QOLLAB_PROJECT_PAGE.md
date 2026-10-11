@@ -50,7 +50,7 @@ Held-out future scoring and aggregate benchmark
 
 For candidate binary variables `x_i`, the physical objective sums weighted squared differences between selected cells for normalized current capacity, resistance, and (in trajectory-aware mode) predicted future capacity. It adds an uncertainty penalty and a health reward. A calibrated penalty `λ(Σx_i − K)²` enforces the requested pack size. Qiskit represents the resulting QUBO as an Ising cost Hamiltonian using `x_i = (1 − Z_i)/2`.
 
-The p=1 QAOA parameters are optimized locally with Qiskit Statevector evaluations. The sampling step uses one backend job. In local development the backend is Qiskit's `BasicSimulator`. QAOA is an approximate solver; exact enumeration is practical for these N=8 instances and is included as an oracle.
+The p=1 QAOA parameters are optimized locally with ideal Qiskit Statevector evaluations. The final measured circuit is transpiled for the Qiskit-compatible backend selected in Qollab, then submitted in one sampling job. The measured distribution comes from that selected backend: ideal simulators omit device noise, while hardware samples reflect device noise. In local development the backend is Qiskit's `BasicSimulator`. QAOA is an approximate solver; exact enumeration is practical for these N=8 instances and is included as an oracle.
 
 ## Baselines
 
@@ -91,7 +91,7 @@ Generate the standalone HTML/JS app package with:
 python scripts/package_qollab_release.py
 ```
 
-Upload `qollab-task8-app.zip` to Qollab in HTML/JS mode. The bundled page is self-contained and includes synthetic interaction data plus aggregate benchmark replay. Qollab's browser-to-Python bridge has not yet been verified; unless a supported bridge is connected, solver results in that page are labeled as precomputed replays. The separate Qollab Python smoke package runs a synthetic QAOA check on Qiskit's local `BasicSimulator` inside the Python runtime, using the host-exposed instance when available; it submits no remote job.
+Upload `qollab-task8-app.zip` to Qollab in HTML/JS mode. The bundled page is self-contained and includes synthetic interaction data plus aggregate benchmark replay. Its Qollab entrypoint uses the documented JavaScript-to-Python module bridge and `.callPromising(...)` calls. Inventory, manual scoring, classical comparison, QAOA preparation, backend submission, result analysis, and explicit held-out reveal use the packaged Python API. The selected Qiskit-compatible backend is passed into QAOA preparation so Qiskit can transpile the measured circuit for that backend. After the user clicks **Run QAOA**, the bridge submits the final measured circuit and collects its counts inside a Python function invoked with `callPromising()`. Start with a simulator. The separate Qollab Python smoke package runs a synthetic QAOA check on Qiskit's local `BasicSimulator` and submits no remote job.
 
 The Python smoke package was verified in Qollab on Python 3.14.2 and Qiskit 2.5.2, including the host-exposed local `BasicSimulator` instance. The test completed one 512-shot job with a feasible sample and no remote submission.
 
@@ -102,12 +102,13 @@ The Python smoke package was verified in Qollab on Python 3.14.2 and Qiskit 2.5.
 - Dataset cycle cutoffs overlap, future-truth coverage is incomplete, and the benchmark pools may overlap.
 - The trajectory-aware objective did not improve mean observed divergence in this benchmark.
 - QAOA was slower than exact enumeration on these small instances. Results do not establish a quantum advantage.
-- The Qollab-hosted browser-to-Python bridge and IonQ simulator path still require direct platform verification.
+- Qollab's built-in BasicSimulator and an AWS simulator have completed live QAOA runs, including the selected-backend transpilation path. The Qollab-selected IonQ Aria 1 backend was also tried through the documented Python `callPromising()` path, but `qiskit_ionq` still fails at browser `fetch` during job submission, before returning a job ID or measured counts. Qollab's runtime blocks outbound `POST` requests from project code, so IonQ hardware execution needs a Qollab-supported server-side submission path. No IonQ hardware result is claimed.
+- Live support targets Qiskit-compatible backends exposed by Qollab. Other providers need a Qiskit backend adapter and a working provider network path in the Qollab runtime.
 - The checked-in browser demo uses synthetic cell records. Cell-level derived-real observations stay local because redistribution rights are unresolved.
 
 ## Originality and dependencies
 
-Pre-build work consisted of problem selection, dataset research, and implementation planning. Project implementation, integration, experiments, UI, and submission materials were developed during the hackathon build window. The Deep Sorting dataset is the scientific data source. Qiskit is a software dependency. The associated public code release is cited as a schema and sampling reference only; its source code was not copied. See [`ATTRIBUTION.md`](../ATTRIBUTION.md) for dataset, platform, and software references.
+Pre-build work consisted of problem selection, dataset research, and implementation planning. Project implementation, integration, experiments, UI, and submission materials were developed during the hackathon build window. Codex was used as an AI coding assistant for implementation, debugging, and documentation. The Deep Sorting dataset is the scientific data source. Qiskit is a software dependency. The associated public code release is cited as a schema and sampling reference only; its source code was not copied. See [`ATTRIBUTION.md`](../ATTRIBUTION.md) for dataset, platform, and software references.
 
 ## Attribution and license
 

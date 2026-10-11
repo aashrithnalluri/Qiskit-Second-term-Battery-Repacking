@@ -14,10 +14,12 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from scripts.build_qollab_html import build as build_qollab_html
+from scripts.build_qollab_html import build_qollab_main_js
 
 
 APP_FILES = (
     "main.py",
+    "repackq_qollab_bridge.py",
     "styles.css",
     "run_repackq_web.py",
     "Launch RePack-Q.bat",
@@ -139,18 +141,57 @@ def build_app_package(destination: Path) -> None:
     with tempfile.TemporaryDirectory(prefix="repackq-qollab-app-") as temporary:
         stage = Path(temporary)
         build_qollab_html(stage)
+        (stage / "main.js").write_text(
+            build_qollab_main_js(),
+            encoding="utf-8",
+            newline="\n",
+        )
         for relative in APP_FILES + APP_SCRIPT_FILES + APP_DOC_FILES:
             _copy_file(relative, stage)
         _copy_tree("src/repackq", stage, target_name="repackq")
         _copy_tree("data/fixtures", stage, target_name="data/fixtures")
         _copy_tree("web", stage, target_name="web")
 
-        for required in ("index.html", "main.js", "styles.css", "main.py", "repackq/__init__.py"):
+        # Qollab's hosted Python runtime may reject filesystem reads with
+        # OSError [Errno 29]. Embed this explicitly synthetic fixture as a
+        # Python string so the bridge can load it without opening a file.
+        fixture_json = (ROOT / "data/fixtures/synthetic_demo.json").read_text(
+            encoding="utf-8"
+        )
+        fixture_module = (
+            '"""Synthetic Qollab fixture embedded for read-restricted runtimes."""\n\n'
+            f"FIXTURE_JSON = {fixture_json!r}\n"
+        )
+        (stage / "repackq_qollab_fixture.py").write_text(
+            fixture_module,
+            encoding="utf-8",
+            newline="\n",
+        )
+
+        for required in (
+            "index.html",
+            "main.js",
+            "styles.css",
+            "main.py",
+            "repackq_qollab_bridge.py",
+            "repackq_qollab_fixture.py",
+            "repackq/__init__.py",
+        ):
             if not (stage / required).is_file():
                 raise RuntimeError(f"Qollab app package is missing {required}")
         main_js = (stage / "main.js").read_text(encoding="utf-8")
-        if "import.meta" in main_js or './quantumBridge.js' in main_js:
-            raise RuntimeError("The generated Qollab browser entrypoint still needs module loading")
+        if (
+            'from "repackq_qollab_bridge"' not in main_js
+            or 'callPromising(...args)' not in main_js
+            or 'callRePackQPython("submit_qaoa_circuit"' not in main_js
+            or "await selectedBackend.run(" in main_js
+            or "import.meta" in main_js
+            or './quantumBridge.js' in main_js
+        ):
+            raise RuntimeError(
+                "The generated Qollab entrypoint is missing the documented Python "
+                "bridge or promised backend submission path"
+            )
         _zip_directory(stage, destination)
 
 

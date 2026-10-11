@@ -254,6 +254,8 @@ h1 em { color: var(--leaf); font-style: normal; }
 .probability-fill.infeasible { background: repeating-linear-gradient(135deg, #c6a153 0 4px, #eadcba 4px 8px); }
 .probability-value { color: #4f6255; font-family: "DM Mono", ui-monospace, monospace; font-size: 7px; text-align: right; }
 .qaoa-details { min-height: 31px; margin: 9px 0 8px; color: #5b6b60; font-size: 8px; line-height: 1.45; }
+.qaoa-error-details summary { cursor: pointer; color: var(--error); font-weight: 700; }
+.qaoa-error-details pre { max-height: 260px; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere; padding: 8px; border: 1px solid var(--line); border-radius: 7px; background: #f7f4ec; color: #28362f; font: 9px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; }
 .button-quantum { width: 100%; background: #dceba0; color: #2f4a2d; }
 .button-quantum:hover:enabled { background: #cee282; }
 .button-quantum > span:last-child { color: #5e7a38; font-size: 15px; }
