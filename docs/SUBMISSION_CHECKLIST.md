@@ -21,8 +21,11 @@
 - [ ] Ask Qollab for a supported server-side IonQ submission path, then rerun Aria and record the QPU job/result. Qollab's browser runtime blocks outbound POST requests; it does not expose an IonQ simulator.
 - [ ] Complete the final keyboard and accessibility pass; record the result.
 - [ ] Run the documented local test suite from a clean environment and record the result if this has not already been completed.
-- [ ] Record and publish the public demo video; add its URL to the README, project page, and submission.
-- [ ] Publish the MIT-licensed project on Qollab.
+- [x] README and project page rebuilt around generated figures (`scripts/make_readme_figures.py` → `docs/assets/`); detailed docs moved to `docs/TECHNICAL.md`.
+- [ ] Paste `docs/QOLLAB_PROJECT_PAGE.md` into the Qollab Project Card; upload `docs/assets/thumbnail.png`; add tags and GitHub link.
+- [ ] Record and publish the public demo video (`docs/DEMO_SCRIPT.md`); replace `VIDEO_URL` in the README, project page, and submission.
+- [ ] Replace `QOLLAB_URL` in the README with the published Qollab project link.
+- [x] Publish the MIT-licensed project on Qollab.
 - [ ] Submit before the hackathon deadline.
 
 ## Data and release hygiene

@@ -1,316 +1,137 @@
-# RePack-Q
+<p align="center">
+  <img src="docs/assets/hero.png" alt="RePack-Q: match second-life batteries by how they will age, not just how they look today" width="100%">
+</p>
 
-**Mission-Aware Quantum Recommissioning of Second-Life EV Batteries**
+<p align="center">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-234f38"></a>
+  <img alt="Qiskit 2.x" src="https://img.shields.io/badge/Qiskit-2.x-6929c4">
+  <img alt="Python 3.10+" src="https://img.shields.io/badge/python-3.10%2B-3776ab">
+  <img alt="Runs on Qollab" src="https://img.shields.io/badge/runs%20on-Qollab-d8ec6a">
+  <img alt="Theme: Quantum Impact" src="https://img.shields.io/badge/theme-Quantum%20Impact-153b2a">
+</p>
 
-Match batteries by how they will age, not just how they look today.
+<p align="center">
+  <b><a href="VIDEO_URL">▶ Demo video</a></b> &nbsp;·&nbsp;
+  <b><a href="QOLLAB_URL">⚛ Run on Qollab</a></b> &nbsp;·&nbsp;
+  <b><a href="#results">📊 Results</a></b> &nbsp;·&nbsp;
+  <b><a href="docs/TECHNICAL.md">🛠 Technical reference</a></b>
+</p>
 
-RePack-Q is a hybrid optimization experiment for selecting a fixed-size series string from retired lithium-ion cells. It uses public longitudinal battery data, compares Qiskit QAOA with strong classical baselines, and evaluates held-out future capacity imbalance. It does not claim quantum speedup, predict certified pack lifetime, or determine whether a cell is safe to deploy.
+---
 
-The repository includes a read-only raw-data inspector and a streaming preprocessing pipeline for the primary Deep Sorting battery dataset. The generated real-data trajectories stay local because the Zenodo record does not state a redistribution license. Task 7 connects the browser workbench to the Python UI API through a local, same-origin HTTP service. The Qollab release package also includes an HTML/JS adapter built on Qollab's documented Python-module imports and `.callPromising(...)` API. See [the adapter contract](web/js/components/README.md) and [the Qollab integration notes](docs/QOLLAB_SPIKE.md).
+**RePack-Q** is a hybrid quantum-classical pipeline for recommissioning retired EV battery cells. It forecasts how each cell will age, encodes "pick the most compatible *K* cells" as a QUBO, samples candidate packs with **Qiskit QAOA**, and scores every choice against **held-out future measurements from a real public battery dataset**.
 
-## Problem and architecture
+### TL;DR
 
-Two used cells with similar SOH can have different histories and future capacity trajectories. RePack-Q estimates near-term capacity from measurements available at recommissioning time, then scores fixed-size groups for current and predicted compatibility. Future measurements are kept out of optimization and used only for retrospective scoring.
+- **Problem.** Second-life storage packs fail at their weakest cell. Matching cells on today's state of health ignores how differently they will age.
+- **Approach.** A leakage-free capacity forecast feeds a mission-weighted, fixed-size QUBO. Qiskit QAOA (p = 1) samples it, and four classical solvers (SOH sort, greedy, annealing, exact) run on the same pools.
+- **Result.** QAOA returned a valid pack in **20/20** real-data pools and sampled the exact optimum in **17/20**. It also beat the industry-style SOH-sort baseline on mean future divergence. We report two findings plainly: at p = 1 the sampler is close to uniform random, and the forecast term did not yet beat a current-only objective. Both point to concrete next steps.
 
-```text
-Public longitudinal battery data
-          │
-          ▼
-Classical diagnostic summaries
-capacity · SOH · resistance · temperature
-          │
-          ▼
-Leakage-free capacity forecast
-          │
-          ▼
-Classical eligibility filter
-          │
-          ├────────────► SOH sort · greedy · annealing · exact
-          │
-          ▼
-Mission-weighted fixed-size QUBO
-          │
-          ▼
-QUBO → Ising → Qiskit QAOA (p=1)
-          │
-          ▼
-Measured feasible samples and held-out scoring
-```
+## The problem in one picture
 
-The QUBO minimizes weighted squared differences between selected cells for normalized present capacity, resistance, and predicted future capacity. It includes health and forecast-uncertainty terms plus a calibrated `λ(Σxᵢ − K)²` penalty for selecting exactly K cells. Qiskit QAOA optimizes parameters using an ideal local Statevector, transpiles the final measured circuit for the injected Qiskit-compatible backend, then submits one sampling job. Ideal simulators omit device noise; hardware results reflect device noise. The included local path uses `BasicSimulator`.
+<img src="docs/assets/problem.png" alt="Two synthetic cells have the same capacity at the decision cycle but diverge over the next 200 cycles" width="100%">
 
-## Benchmark result snapshot
+A series string is only as good as its weakest cell. Two cells can match today and still drift apart, and the whole pack loses usable capacity as they do. RePack-Q asks whether grouping cells on their **forecast** trajectory produces packs that stay balanced. It then tests that on real data the optimizer never saw.
 
-Task 6 evaluated 20 fixed-seed N=8, K=4 pools at cycle 16 with a 200-cycle horizon. QAOA found a feasible sample in 20/20 trials and sampled an exact optimum in 17/20; its mean best-sampled objective gap was 0.08948. Mean observed future divergence was 0.07620 for QAOA, 0.07321 for exact trajectory-aware selection, and 0.07672 for SOH sorting. The objective ablation did not support the trajectory-awareness hypothesis on these trials: exact current-only mean OPD was 0.07188 versus 0.07321 for trajectory-aware selection. Mean local QAOA runtime was about 1.51 s, compared with 4.34 ms for exact enumeration. These descriptive results do not establish a quantum speedup or a general improvement. Full metrics and limitations are in [docs/RESULTS.md](docs/RESULTS.md).
+## How it works
 
-## Demo video
+<img src="docs/assets/pipeline.png" alt="Pipeline: public data, forecast, filter, QUBO, QAOA, held-out scoring, with classical baselines on the same pools" width="100%">
 
-The 2-minute-40-second recording script is in
-[`docs/DEMO_SCRIPT.md`](docs/DEMO_SCRIPT.md). It uses a live Qollab simulator
-run or the local `BasicSimulator`, and distinguishes the synthetic UI fixture
-from the aggregate derived-real benchmark. The public video still needs to be
-recorded and published; its URL will be added after publication.
+1. **Data.** The [Deep Sorting of Reused Batteries](https://doi.org/10.5281/zenodo.14859405) dataset covers 86 NMC/graphite cells over a 30-month aging campaign. We extract diagnostic capacity, resistance and temperature summaries.
+2. **Forecast without leakage.** A weighted linear fit to each cell's recent capacity predicts its capacity at the mission horizon. Prediction functions reject any observation after the decision cycle (enforced by `tests/test_no_leakage.py`).
+3. **QUBO.** For binary choices $x_i$ (cell *i* in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells:
 
-## Development setup
+$$
+\min_{x\in\{0,1\}^N}\; \sum_{i<j} w_{ij}\,x_i x_j \;+\; \sum_i h_i\,x_i \;+\; \lambda\Big(\sum_i x_i - K\Big)^2
+$$
 
-Use Python 3.10 or newer and install the pinned Qiskit dependency. In Windows
-PowerShell:
+4. **QAOA.** The QUBO maps to an Ising Hamiltonian via $x_i = (1 - Z_i)/2$; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
+5. **Score.** Each solver's pack is scored on the **held-out** future capacities: observed pack divergence (CV), bottleneck capacity, objective gap and runtime.
 
-```powershell
-py -3 -m venv .venv
-.\.venv\Scripts\Activate.ps1
+<img src="docs/assets/qaoa-samples.png" alt="Histogram of one QAOA run's 1024 shots, valid 4-cell packs highlighted, best valid pack equals the exact optimum" width="100%">
+
+## Run it
+
+### On Qollab (recommended for judges)
+
+1. Open the **[RePack-Q project on Qollab](QOLLAB_URL)** in Chrome, Edge, Brave or Firefox. Safari can't run Qollab projects yet.
+2. Press **Run** and pick a **free simulator**.
+3. Build a pack in the workbench, compare the classical solvers, then click **Run QAOA**. Use **Reveal future** to score your choice.
+
+### Locally
+
+```sh
+python -m venv .venv && . .venv/bin/activate
 python -m pip install -r requirements.txt
+python run_repackq_web.py            # opens the workbench at http://127.0.0.1:8000/
 ```
-
-On macOS or Linux:
 
 ```sh
-python3 -m venv .venv
-. .venv/bin/activate
-python -m pip install -r requirements.txt
+PYTHONPATH=src python -m unittest discover -s tests -v   # full test suite
 ```
 
-For a Windows machine without a command-line workflow, extract
-`qollab-task8-app.zip` and double-click `Launch RePack-Q.bat`. On first launch
-it creates a project-local virtual environment, installs the pinned
-dependency, starts the local server, and opens the browser. Keep the server
-window open while using the app.
+On Windows, double-click `Launch RePack-Q.bat`. Dataset preprocessing, the 20-pool benchmark, and Qollab packaging are covered in **[docs/TECHNICAL.md](docs/TECHNICAL.md)**.
 
-Run the deterministic local simulator smoke test and import check:
+## Results
 
-```sh
-PYTHONPATH=src python -m repackq.api
-PYTHONPATH=src python -m unittest discover -s tests -v
-```
+Twenty fixed-seed pools from the real dataset, each choosing **K = 4 of N = 8** cells at cycle 16 and scored on the held-out next 200 cycles. Full tables and provenance hashes are in [docs/RESULTS.md](docs/RESULTS.md).
 
-Start the workbench and its local Python API from the repository root:
+<img src="docs/assets/benchmark.png" alt="Mean and median observed future divergence and runtime for SOH sort, greedy, annealing, exact and QAOA" width="100%">
 
-```sh
-python run_repackq_web.py
-```
+**Optimizing compatibility beats sorting by SOH.** Every QUBO-based solver, QAOA included, produced better-balanced packs on average than the SOH-sort baseline (mean divergence 0.0762 for QAOA and 0.0732 for exact vs 0.0767 for SOH sort).
 
-Open the URL printed by the server, normally `http://127.0.0.1:8000/`. The browser registers its HTTP adapter only on loopback hosts and calls the Python API on that same origin. The workbench uses checked-in, clearly synthetic cell records for interaction and solver examples; the Task 6 chart replays aggregate derived-real benchmark results. The held-out future fixture is served only through the explicit reveal API action. No CDN, external API, credential, or remote backend is required.
+<img src="docs/assets/qaoa-scorecard.png" alt="QAOA scorecard: 20 of 20 valid packs, 17 of 20 optimum sampled, 29.3 percent valid shots vs 27.3 percent uniform, 1.51 s vs 4.3 ms exact" width="100%">
 
-## Task 7: interactive workbench
+**QAOA runs end-to-end on every pool.** It returns valid packs every time and hits the exact optimum in 17 of 20 pools. Our own check: at p = 1 with a standard X mixer, valid-pack shot mass (29.3%) sits just above uniform random (27.3%). The **search over packs** is doing most of the work, not amplitude concentration. That gives a clear target for the next iteration (see below). At N = 8, exact enumeration is far faster. **No quantum speedup is claimed.**
 
-The app supports mission selection, the current-only and trajectory-aware
-objectives, fixture-valid horizon/pack-size controls, accessible keyboard pack
-assembly, classical comparisons, a measured-state QAOA inspector, a held-out
-future reveal, and the aggregate Task 6 replay. When started with
-`run_repackq_web.py`, Python solver actions and QAOA run live through the local
-HTTP adapter. QAOA is enabled only when the installed Qiskit runtime reports
-Statevector support. When opened as static files or in a host without an
-adapter, the app clearly labels its synthetic solver and QAOA examples as
-precomputed replays.
+<img src="docs/assets/ablation.png" alt="Ablation: exact current-only mean divergence 0.0719 vs trajectory-aware 0.0732; trajectory-aware better in 7 of 20 pools" width="100%">
 
-The Python callables for a host adapter are in root `main.py`; their
-implementation is in `src/repackq/ui.py`. The local HTTP routes and streamed
-QAOA stage events are in `run_repackq_web.py`; the browser contract is in
-[`web/js/components/README.md`](web/js/components/README.md).
+**The forecast term didn't help yet.** With the solver held fixed (exact enumeration), adding forecast capacity to the objective improved balance in 7/20 pools and was tied or worse in 13/20. We publish this negative result because the leakage-free evaluation exists to catch exactly this kind of thing.
 
-Build both Qollab packages on Windows, macOS, or Linux with:
+| Method | Mean future divergence ↓ | Mean bottleneck (Ah) ↑ | Mean runtime |
+|---|---:|---:|---:|
+| SOH sort | 0.07672 | 1.460 | 0.02 ms |
+| Greedy | 0.07321 | 1.435 | 2.3 ms |
+| Simulated annealing | 0.07321 | 1.435 | 69 ms |
+| Exact enumeration | 0.07321 | 1.435 | 4.3 ms |
+| **QAOA, best sampled valid pack** | 0.07620 | 1.429 | 1.51 s |
 
-```sh
-python scripts/package_qollab_release.py
-```
+Predictor check across 4,642 held-out forecasts: MAE **0.115 Ah**, median absolute error **5.6%**.
 
-The command creates `qollab-task8-app.zip` and
-`qollab-task8-python-smoke.zip`. The app ZIP uses Qollab's documented
-JavaScript-to-Python module bridge for live inventory, evaluation, classical
-solvers, future reveal, and QAOA. QAOA uses the backend selected in Qollab's Run
-dialog and is submitted only after clicking **Run QAOA**; start with a free
-simulator. The synthetic replay remains available if the Python runtime is not
-ready. The separate Python smoke ZIP runs a synthetic p=1 QAOA check with
-Qiskit's local `BasicSimulator`, prints a JSON runtime/QAOA report, and does
-not submit an IonQ or other remote job. Project-page copy, a timed video script,
-and the publication checklist are in `docs/`.
+## What we learned → what's next
 
-The Task 5 record includes a Qollab Python-runner check using Qiskit's local
-`BasicSimulator`. The Task 8 Python smoke package completed in a clean Qollab
-session on Python 3.14.2/Qiskit 2.5.2, and a second run verified the host's
-injected `BasicSimulator` instance. The HTML/JS bridge completed live runs on
-the built-in and AWS simulators, including backend-specific transpilation. No
-IonQ simulator is available in the Qollab QPU list. The
-updated Aria submission was retried through Qollab's documented
-`.callPromising(...)` API, but `qiskit_ionq` still fails at `requests.post()`
-with Emscripten `Failed to fetch`; no submission response, job ID, or measured
-counts were returned. Qollab's [runtime policy](https://qollab.xyz/learn/docs/runtime-environment)
-blocks project `POST` requests, which IonQ job submission requires. Running
-this provider on Qollab needs a Qollab-supported server-side submission path.
-No IonQ hardware result is claimed. See
-[docs/QOLLAB_SPIKE.md](docs/QOLLAB_SPIKE.md) for the exact hosted checks and
-[docs/SUBMISSION_CHECKLIST.md](docs/SUBMISSION_CHECKLIST.md) for current status.
+| Finding | Next step |
+|---|---|
+| p = 1 QAOA with an X mixer spends ~70% of shots on wrong-size packs | **Constraint-preserving XY mixer + Dicke-state start**, so every shot is a valid pack. Then deeper p and warm-started angles |
+| Forecast term didn't beat current-only matching | Stronger degradation predictor (resistance growth, temperature), larger pools, multiple decision cycles |
+| N = 8 is trivially enumerable | Scale to N = 16–24, where enumeration stops being free, and compare against the same classical baselines |
+| IonQ submission from Qollab's browser runtime is blocked by its no-POST policy | Run the same circuit through a supported server-side IonQ path. The pipeline already submits one job per run |
 
-## Primary dataset preprocessing
+## Limitations
 
-Download the official `Second_life_phase.zip` from [Zenodo record 10.5281/zenodo.14859405](https://doi.org/10.5281/zenodo.14859405) into `data/raw/`, then run:
-
-```sh
-python src/scripts/inspect_dataset.py --raw-root data/raw --phase second_life --summary
-python src/scripts/preprocess_primary.py \
-  --raw-root data/raw/Second_life_phase.zip \
-  --phase second_life \
-  --nominal-capacity 2.4 \
-  --output data/processed/trajectories.json
-```
-
-The inspector scans raw rows without changing them. Preprocessing also reads ZIP files without extraction and writes `trajectories.json`, `provenance.json`, and `preprocessing_summary.json`. See [data/README.md](data/README.md) for sampling, schema, and redistribution details. The generated cell-level observations are local derived data and must not be redistributed while the dataset license remains unspecified.
-
-## Task 3: trajectory forecasts and retrospective pools
-
-The classical modeling layer uses the default `pv_tou` mission (200-cycle
-horizon, pack size 4, minimum SOH 0.50). It fits a weighted linear regression
-to the latest eight valid capacity diagnostics (minimum four), clamps positive
-fade slopes to zero, clamps predictions to `[0, current capacity]`, and reports
-a residual-based uncertainty proxy. `frequency_response` is exposed only as an
-experimental placeholder: it uses the same model and weights and has no
-frequency-response-specific degradation calibration.
-
-Prediction functions accept only a history sequence and reject any observation
-after the decision cycle. `split_history_future` creates separate history and
-held-out sequences; `lookup_future_truth` accepts only the future side. Series
-pack metrics include weakest-cell usable capacity, capacity spread/CV,
-resistance spread, predicted divergence, observed future divergence, and the
-observed future bottleneck.
-
-After preprocessing the real dataset, predictor quality can be summarized with:
-
-```sh
-PYTHONPATH=src python src/scripts/evaluate_predictor.py \
-  --input data/processed/trajectories.json \
-  --output data/processed/prediction_evaluation.json
-```
-
-Generate three or more seeded retrospective candidate pools with:
-
-```sh
-PYTHONPATH=src python src/scripts/build_demo_pools.py \
-  --input data/processed/trajectories.json \
-  --output data/processed/demo_pools.json
-```
-
-The pool builder requires `real` or `derived-real` input and refuses the
-synthetic UI fixture. It chooses a decision cycle with the largest eligible
-cell count unless `--decision-cycle` is supplied. The default demo pool is the
-seeded pool whose predicted pack divergence is nearest the median across the
-predeclared pool set; held-out outcomes do not select it. Generated pool files
-contain held-out future observations and are ignored by Git along with the
-processed cell trajectories because redistribution terms are unresolved.
-
-## Task 4: matching objective and classical solvers
-
-`src/repackq/optimization/` implements pool-local median/IQR normalization
-(with z-score and constant-feature fallbacks), the `current_only` and
-`trajectory_aware` objective modes, the fixed-cardinality QUBO, and the exact
-`x = (1 - Z) / 2` Ising mapping. Missing resistance or temperature values stay
-missing and omit only the affected pair term. The current-only builder does
-not normalize or score forecast capacity or uncertainty. QUBO cardinality
-penalties are calibrated by exhaustive small-instance enumeration, and the
-exact solver checks that the penalized global minimum is feasible.
-
-The classical comparison uses SOH sorting, multi-seed compatibility greedy,
-fixed-cardinality swap simulated annealing, and exact enumeration. For a real
-retrospective comparison, first generate `data/processed/demo_pools.json` with
-the Task 3 command above, then run:
-
-```sh
-PYTHONPATH=src python src/scripts/compare_classical.py \
-  --input data/processed/demo_pools.json \
-  --objective-mode trajectory_aware
-```
-
-When that local real-data export is absent, the CLI uses the checked-in
-`synthetic-fixture` solely to demonstrate the solver path and labels that
-output as non-scientific. Select `--objective-mode current_only` to compare
-the present-state formulation with the trajectory-aware formulation under
-the same candidate pool.
-
-## Task 5: Qiskit QAOA engine
-
-The QAOA engine verifies the QUBO-to-Ising mapping exhaustively for `N <= 12`,
-builds the diagonal cost operator and p-layer X-mixer circuit, and optimizes
-parameters with local Qiskit Statevector evaluations. It uses SciPy COBYLA
-when available and includes a dependency-light p=1 grid/refinement fallback.
-The final measured circuit is transpiled and submitted once through an injected
-backend; the local demo uses Qiskit's bundled `BasicSimulator` and needs no
-credentials.
-
-After generating a real or derived-real pool export with the Task 3 commands,
-run the default `N=8`, `K=4`, 1024-shot experiment locally:
-
-```sh
-PYTHONPATH=src python src/scripts/run_qaoa_demo.py \
-  --input data/processed/demo_pools.json
-```
-
-The script compares the best feasible measured state against exact enumeration
-and labels the pool's data classification. It refuses synthetic fixtures for
-this scientific run. `run_qaoa()` also accepts a Qiskit-compatible backend
-object from a host application; the Qollab runtime entry point is documented in
-[docs/QOLLAB_SPIKE.md](docs/QOLLAB_SPIKE.md).
-
-Running the root `main.py` prints Python and installed package versions, then
-exits without importing Qiskit or starting a simulation. The four-cell
-synthetic demo remains callable as `run_task5_toy_demo()` when a host imports
-the API and requests an explicit QAOA run. This runtime check does not replace
-the N=8/K=4 scientific run above.
-
-## Task 6: reproducible benchmark
-
-The fixed 20-seed Task 6 configuration is in
-[`configs/task6_benchmark.json`](configs/task6_benchmark.json). After preprocessing
-the primary dataset, run the complete local comparison with:
-
-```sh
-PYTHONPATH=src python src/scripts/run_benchmarks.py \
-  --input data/processed/trajectories.json \
-  --config configs/task6_benchmark.json
-```
-
-The command resumes from a fsynced JSONL checkpoint in
-`data/processed/benchmark/`, writes full local aggregate outputs there, creates
-small replay assets under `web/data/benchmark/`, and regenerates
-[`docs/RESULTS.md`](docs/RESULTS.md). It runs SOH sorting, greedy, simulated
-annealing, exact enumeration, and local p=1 QAOA, plus an exact current-only vs
-trajectory-aware ablation. The web export contains three trials chosen by the
-predeclared seed order and candidate size; each row contains aggregate pack
-metrics, with no cell identifiers or snapshot values.
-
-The full canonical trajectory asset stays local because dataset redistribution
-terms are unspecified. Benchmark metadata records that license state and marks
-the web export as aggregate-only. Rerun the command locally to regenerate the
-metrics from the source asset. No Qollab backend is used by this command.
+- Retrospective study on one public dataset. The 20 pools are draws from one inventory and may overlap. Results are descriptive, not significance tests.
+- The 200-cycle horizon is in dataset cycle indices. It is not calendar time or a real household load trace.
+- The interactive app ships a **synthetic** 8-cell fixture. The dataset's license doesn't state redistribution terms, so real cell-level data stays local and only aggregate benchmark results are published.
+- Not a safety tool, a lifetime guarantee, or evidence of quantum advantage. All quantum results come from simulators. No IonQ hardware result is claimed.
 
 ## Repository map
 
-- `src/repackq/` — Python package, Qiskit compatibility layer/QAOA engine, and Task 7 UI API (`ui.py`).
-- `src/scripts/` — dataset inspection, preprocessing, predictor evaluation, candidate-pool, classical solver comparison, local QAOA demo, and benchmark CLIs.
-- `configs/task6_benchmark.json` — fixed benchmark seeds and solver settings.
-- `web/data/benchmark/` — small aggregate-only benchmark replay assets.
-- `web/` — zero-build accessible workbench, safe runtime probe, synthetic interaction/replay assets, and derived-real aggregate benchmark assets.
-- `index.html`, `main.js`, and `styles.css` — Qollab HTML/JS preview entrypoints; the package builder creates a self-contained browser bundle from `web/js/`.
-- `run_repackq_web.py` — local static-file server and same-origin Python API for the browser workbench.
-- `Launch RePack-Q.bat` — Windows double-click setup and local browser launcher.
-- `scripts/package_qollab_release.py` — builds the standalone Qollab app ZIP and Python runtime/QAOA smoke ZIP.
-- `scripts/` — Qollab runtime introspection probe.
-- `tests/` — Qiskit operator/circuit/bit-order and QAOA coverage, dataset adapter coverage, Task 3 leakage/prediction/trial metrics, Task 4 optimization, and Task 6 benchmark exports/checkpoint coverage.
-- `data/raw/` — ignored location for downloaded raw datasets; no raw data is included.
-- `data/processed/` — local generated trajectories, provenance, and QA report; cell-level trajectories and the per-file QA report are ignored by Git because redistribution terms are unresolved.
-- `data/fixtures/synthetic_demo.json` — clearly labeled eight-cell synthetic fixture for UI development, not scientific results.
-- `tests/fixtures/` — clearly synthetic adapter fixtures, not benchmark observations.
+| Path | What's there |
+|---|---|
+| `src/repackq/` | Data adapters, leakage-free prediction, QUBO/objective, classical solvers, Qiskit QAOA engine, benchmark, UI API |
+| `src/scripts/` | CLIs: inspect, preprocess, evaluate predictor, build pools, compare solvers, QAOA demo, benchmark |
+| `web/` | Zero-build browser workbench, synthetic fixture, aggregate benchmark replay |
+| `index.html`, `main.js`, `main.py` | Qollab entry points (HTML/JS ↔ Python bridge) |
+| `tests/` | Leakage, QUBO↔Ising mapping, QAOA, solvers, dataset adapter, benchmark, UI API |
+| `scripts/make_readme_figures.py` | Regenerates every figure in this README from checked-in JSON |
+| `docs/` | [Results](docs/RESULTS.md) · [Technical reference](docs/TECHNICAL.md) · [Qollab notes](docs/QOLLAB_SPIKE.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
-## Originality, AI assistance, and sources
+## Originality, AI assistance and sources
 
-Pre-build work consisted of problem selection, dataset research, and
-implementation planning. Project implementation, integration, experiments,
-UI, and submission materials were developed during the hackathon build window.
-Codex was used as an AI coding assistant for implementation, debugging, and
-documentation. The project-specific data pipeline, optimization model, QAOA
-engine, benchmark, and interface are implemented in this repository. The
-associated Deep Sorting code release was consulted as a schema and sampling
-reference; no code from it was copied. External data and software are listed in
-[`ATTRIBUTION.md`](ATTRIBUTION.md).
+Pre-build work consisted of problem selection, dataset research and implementation planning. Project implementation, integration, experiments, UI and submission materials were developed during the hackathon build window. Codex was used as an AI coding assistant for implementation, debugging and documentation. Claude Code was used for the final documentation, figure-generation script and README/project-page design. The project-specific data pipeline, optimization model, QAOA engine, benchmark and interface are implemented in this repository. The associated Deep Sorting code release was consulted as a schema and sampling reference only; no code from it was copied. External data and software are listed in [ATTRIBUTION.md](ATTRIBUTION.md).
 
 ## License and attribution
 
-The project is licensed under MIT. Dataset and platform references are listed in [ATTRIBUTION.md](ATTRIBUTION.md). The required attribution is: **This effort is supported by Qollab & IonQ**.
+MIT. See [LICENSE](LICENSE). Dataset terms are separate from the software license.
+
+**This effort is supported by Qollab & IonQ**

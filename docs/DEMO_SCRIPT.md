@@ -1,24 +1,21 @@
 # RePack-Q demo video script
 
-**Target length: 2 minutes 40 seconds.** For the live QAOA segment, use the Qollab HTML/JS package with its built-in or AWS simulator; both paths have completed live runs. The local workbench with `BasicSimulator` is also suitable. Do not select IonQ Aria: Qollab's runtime blocks the provider's outgoing `POST`, so an Aria job cannot currently be submitted from this project. If a live simulator run is unavailable while recording, use the clearly labeled replay. Never describe the synthetic reveal as real battery truth or a simulator run as hardware execution.
+**Target: 2:30** (hard limit 3:00). The video cuts between full-screen figures from `docs/assets/` and a live screen recording of the Qollab app in Chrome. Run QAOA on a **free simulator**. Never describe simulator output as IonQ hardware, or the app's synthetic fixture as real battery data.
 
-| Time | Visual and narration |
-| --- | --- |
-| 0:00–0:20 | **Show two cells with similar present SOH.** “Two used cells can look alike today and still age differently. RePack-Q asks whether matching on estimated future capacity can form more balanced second-life groups.” |
-| 0:20–0:43 | **Show the synthetic-fixture label, then the benchmark panel's Deep Sorting source and 20-trial summary.** “The interactive inventory is synthetic. Separately, the retrospective study uses the public 86-cell Deep Sorting battery dataset. At each decision cutoff, the offline evaluation uses historical measurements and a simple forecast, then scores against later measurements held out until evaluation.” |
-| 0:43–1:02 | **Build a deliberately mismatched four-cell pack in the workbench.** Point to its spread and bottleneck metrics. “The demo fixture is synthetic, so this interaction explains the workflow; it is not a measured pack recommendation.” |
-| 1:02–1:30 | **Select Qollab's built-in or AWS simulator and run QAOA once.** Show the QUBO-to-Ising mapping, p=1 circuit summary, simulator label, shots, feasible mass, and measured-state probabilities. “Each of eight candidates is a binary variable. QAOA samples fixed-size selections; we rank measured feasible packs by the physical objective. Parameter search is local, followed by one simulator sampling job.” |
-| 1:30–1:49 | **Compare QAOA with greedy, annealing, exact enumeration, and SOH sort.** “On the 20-trial benchmark, QAOA found a feasible sample every time and sampled the exact optimum in 17 trials. Exact enumeration remained much faster at this small size.” |
-| 1:49–2:08 | **Use the reveal control.** “This shipped UI reveal is synthetic. The scientific benchmark scored against held-out real-derived measurements locally; the app only ships aggregate trial outcomes because dataset redistribution terms are unresolved.” |
-| 2:08–2:29 | **Show benchmark summary and objective ablation.** “Trajectory awareness did not improve mean observed divergence in this seed set: exact current-only averaged 0.07188 OPD, versus 0.07321 for trajectory-aware selection.” |
-| 2:29–2:40 | **Close on limitations and attribution.** “These small experiments show a way to test mission-aware battery grouping with QAOA. They establish no quantum speedup, battery safety, or lifetime gain. This effort is supported by Qollab & IonQ.” |
+| Time | On screen | Narration |
+| --- | --- | --- |
+| 0:00–0:12 | `hero.png` | "Millions of EV batteries are retiring with most of their capacity left. RePack-Q helps give them a second life as home storage." |
+| 0:12–0:30 | `problem.png` | "A series pack is only as good as its weakest cell. These two cells look identical today, but over the next 200 cycles one fades much faster, and the pack fades with it. So we ask: can we match cells by how they *will* age?" |
+| 0:30–0:52 | `pipeline.png` | "We use a real public dataset of 86 retired cells. A leakage-free forecast predicts each cell's future capacity. We encode 'pick the four most compatible cells out of eight' as a QUBO and map it to an Ising Hamiltonian. Qiskit QAOA samples it, and four classical solvers run on the exact same pools. Future data stays hidden until scoring." |
+| 0:52–1:30 | **Live Qollab app** | Choose the mission, then hand-build a mismatched pack and point at its spread and bottleneck. Run the classical comparison. Click **Run QAOA** on the free simulator and show the measured bitstrings and feasible mass. "This inventory is a synthetic demo fixture. Each of the eight qubits is one cell; a valid pack has exactly four ones. One sampling job on Qollab's simulator gives us the distribution." Click **Reveal future**. |
+| 1:30–1:45 | `qaoa-samples.png` | "Here's one run. The highlighted bars are valid packs, and the best valid pack QAOA sampled is the exact optimum." |
+| 1:45–2:05 | `benchmark.png`, then `qaoa-scorecard.png` | "On 20 pools from the real dataset, every QUBO-based solver, QAOA included, built better-balanced packs than sorting by state of health. QAOA returned a valid pack in all 20 and found the exact optimum in 17. To be candid: at depth one, its valid-shot rate is close to uniform random, and exact search is faster at this size. No speedup is claimed." |
+| 2:05–2:20 | `ablation.png` | "And we tested our own hypothesis. The forecast term didn't beat current-only matching yet, at 7 wins out of 20. We publish that because the held-out evaluation exists to catch exactly this." |
+| 2:20–2:30 | README "What's next" table, or `hero.png` | "Next: a constraint-preserving XY mixer so every shot is a valid pack, a stronger forecaster, and larger pools. Code and data pipeline are open source under MIT. This effort is supported by Qollab and IonQ." |
 
-## Recording notes
+## Recording checklist
 
-- Keep the benchmark panel and synthetic/derived-real labels visible when discussing results.
-- Name the selected simulator in the narration. QAOA samples and counts vary between runs; show the output from the recorded run rather than quoting a fixed feasible mass or bitstring.
-- State that the app's interactive candidate inventory and reveal are synthetic. The 20-trial benchmark figures are aggregate results from the separate derived-real evaluation.
-- Do not describe simulator output as an IonQ Aria result. The hosted Aria path currently fails before returning a job ID or measured counts.
-- Do not imply that the app contains cell-level real data or that the future-reveal fixture is from the Deep Sorting dataset.
-- Keep the final video under three minutes and add captions for spoken narration.
-- After publishing, add the public video URL to the README and Qollab project page.
+- Record with macOS **Cmd-Shift-5** (whole screen or window) in **Chrome**. Safari can't run Qollab projects.
+- Open the figures full-screen from `docs/assets/` (Preview, then View → Enter Full Screen) and record those segments, or drop the PNGs into iMovie/CapCut over the voiceover.
+- Name the selected simulator out loud. Show the counts from your actual run rather than quoting fixed numbers.
+- Export at 1080p and upload to **YouTube as Unlisted** (anyone with the link, no sign-in). Paste the URL into `README.md`, `docs/QOLLAB_PROJECT_PAGE.md` (replace `VIDEO_URL`), the Qollab project page, and the submission form.
