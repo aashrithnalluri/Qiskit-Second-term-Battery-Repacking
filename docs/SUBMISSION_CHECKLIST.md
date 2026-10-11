@@ -22,6 +22,8 @@
 - [ ] Complete the final keyboard and accessibility pass; record the result.
 - [ ] Run the documented local test suite from a clean environment and record the result if this has not already been completed.
 - [x] README and project page rebuilt around generated figures (`scripts/make_readme_figures.py` → `docs/assets/`); detailed docs moved to `docs/TECHNICAL.md`.
+- [x] Research process (hypotheses, design, verdicts, threats to validity) and literature references added to the README, project page, and `ATTRIBUTION.md`.
+- [ ] Make the GitHub repository public so linked code and project-page images load without sign-in.
 - [ ] Paste `docs/QOLLAB_PROJECT_PAGE.md` into the Qollab Project Card; upload `docs/assets/thumbnail.png`; add tags and GitHub link.
 - [ ] Record and publish the public demo video (`docs/DEMO_SCRIPT.md`); replace `VIDEO_URL` in the README, project page, and submission.
 - [ ] Replace `QOLLAB_URL` in the README with the published Qollab project link.
