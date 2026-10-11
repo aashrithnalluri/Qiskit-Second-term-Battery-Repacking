@@ -423,7 +423,55 @@ def fig_equation() -> None:
         save(fig, "qubo-equation.png")
 
 
+# Equations for the README "The math" section, transcribed from the code:
+# prediction/trajectory.py, optimization/normalization.py,
+# optimization/objective.py, quantum/qiskit_compat.py, prediction/metrics.py.
+EQUATIONS = {
+    "forecast-fit": r"(a_i, b_i) = \mathrm{arg\,min}_{a,b}\ \sum_k \omega_k \left(C_{ik} - a - b\,(t_k - t_0)\right)^2,"
+                    r"\qquad \omega_k\ \mathrm{evenly\ spaced\ in}\ [0.5,\ 1]",
+    "forecast-pred": r"\hat{C}_i = \mathrm{clip}\left(C_i(t_0) + \min(b_i,\ 0)\,H,\ \ 0,\ \ C_i(t_0)\right)",
+    "forecast-unc": r"u_i = \sqrt{\frac{\sum_k \omega_k r_{ik}^2}{\sum_k \omega_k}}\ \sqrt{1 + \frac{H}{\Delta t_i}},"
+                    r"\qquad u_i \leq 0.25\, C_{\mathrm{nom}}",
+    "normalize": r"\tilde{z}_i = \frac{z_i - \mathrm{median}(z)}{\mathrm{IQR}(z)}"
+                 r"\qquad \mathrm{for}\ \ z \in \{c,\ r,\ \hat{C},\ u\}",
+    "objective": r"f(x) = \sum_{i<j} x_i x_j \left[ w_C (\tilde{c}_i - \tilde{c}_j)^2 + w_R (\tilde{r}_i - \tilde{r}_j)^2"
+                 r" + w_F (\tilde{p}_i - \tilde{p}_j)^2 \right] + \sum_i x_i \left( w_U \tilde{u}_i - w_H s_i \right)",
+    "penalty": r"\lambda \left(\sum_i x_i - K\right)^2 = \lambda \left[ \sum_i (1 - 2K)\, x_i"
+               r" + 2 \sum_{i<j} x_i x_j + K^2 \right] \qquad (x_i^2 = x_i)",
+    "qubo": r"E(x) = \sum_i q_i\, x_i + \sum_{i<j} Q_{ij}\, x_i x_j + c,"
+            r"\qquad \lambda = 4 \max\left(1,\ \max Q^{\mathrm{phys}}_{ij},\ \max |q^{\mathrm{phys}}_i|\right)\ \times 2^m",
+    "ising": r"x_i = \frac{1 - Z_i}{2}\ \ \Rightarrow\ \ H_C = \sum_i h_i Z_i + \sum_{i<j} J_{ij} Z_i Z_j + E_0",
+    "ising-coeffs": r"J_{ij} = \frac{Q_{ij}}{4}, \qquad h_i = -\frac{q_i}{2} - \frac{1}{4} \sum_{j \neq i} Q_{ij},"
+                    r"\qquad E_0 = c + \frac{1}{2}\sum_i q_i + \frac{1}{4}\sum_{i<j} Q_{ij}",
+    "qaoa-state": r"|\gamma, \beta\rangle = e^{-i \beta H_M}\, e^{-i \gamma H_C}\, H^{\otimes N}\, |0\rangle^{\otimes N},"
+                  r"\qquad H_M = \sum_i X_i",
+    "qaoa-gates": r"e^{-i\gamma h_i Z_i} = R_Z(2\gamma h_i), \qquad"
+                  r" e^{-i\gamma J_{ij} Z_i Z_j} = \mathrm{CX}_{ij}\, R_Z(2\gamma J_{ij})_j\, \mathrm{CX}_{ij}, \qquad"
+                  r" e^{-i\beta X_i} = R_X(2\beta)",
+    "qaoa-params": r"(\gamma^*, \beta^*) = \mathrm{arg\,min}_{\gamma, \beta}\ \langle \gamma, \beta |\, H_C\, | \gamma, \beta \rangle",
+    "metrics-pack": r"\mathrm{OPD}(S) = \frac{\sigma\left(\{C^{\mathrm{fut}}_i\}_{i \in S}\right)}"
+                    r"{\mu\left(\{C^{\mathrm{fut}}_i\}_{i \in S}\right)}, \qquad"
+                    r" \mathrm{bottleneck}(S) = \min_{i \in S} C^{\mathrm{fut}}_i",
+    "metrics-solver": r"\mathrm{gap} = \max\left(0,\ f(x) - f(x^*)\right), \qquad"
+                      r" P_{\mathrm{valid}} = \sum_{|x| = K} p(x), \qquad"
+                      r" P_{\mathrm{uniform}} = \frac{C(8,4)}{2^8} = \frac{70}{256} \approx 27.3\%",
+}
+
+
+def fig_math() -> None:
+    out = OUT / "math"
+    out.mkdir(parents=True, exist_ok=True)
+    with plt.rc_context({"mathtext.fontset": "cm"}):
+        for name, tex in EQUATIONS.items():
+            fig = plt.figure(figsize=(0.1, 0.1))
+            fig.text(0, 0, f"${tex}$", fontsize=17, color=INK)
+            fig.savefig(out / f"{name}.png", dpi=DPI, bbox_inches="tight", pad_inches=0.12)
+            plt.close(fig)
+            print(f"wrote docs/assets/math/{name}.png")
+
+
 def main() -> None:
+    fig_math()
     fig_equation()
     fig_hero()
     fig_thumbnail()
