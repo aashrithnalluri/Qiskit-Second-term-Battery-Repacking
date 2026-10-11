@@ -26,10 +26,10 @@ A series string is only as good as its weakest cell. Two cells can match today a
 
 1. **Data.** The [Deep Sorting of Reused Batteries](https://doi.org/10.5281/zenodo.14859405) dataset covers 86 NMC/graphite cells over a 30-month aging campaign. We extract diagnostic capacity, resistance and temperature summaries.
 2. **Forecast without leakage.** A weighted linear fit to each cell's recent capacity predicts its capacity at the mission horizon. Prediction functions reject any observation after the decision cycle (enforced by [`tests/test_no_leakage.py`](https://github.com/aashrithnalluri/Qiskit-Second-term-Battery-Repacking/blob/main/tests/test_no_leakage.py)).
-3. **QUBO.** For binary choices $x_i$ (cell *i* in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells:
+3. **QUBO.** For binary choices $x_i$ (cell *i* in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells. Over binary vectors $x$ of length *N*:
 
 $$
-\min_{x \in \lbrace 0,1 \rbrace^N} \sum_{i<j} w_{ij} x_i x_j + \sum_i h_i x_i + \lambda \Big( \sum_i x_i - K \Big)^2
+\min_x \sum_{i<j} w_{ij} x_i x_j + \sum_i h_i x_i + \lambda \left( \sum_i x_i - K \right)^2
 $$
 
 4. **QAOA.** The QUBO maps to an Ising Hamiltonian via $x_i = (1 - Z_i)/2$; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
