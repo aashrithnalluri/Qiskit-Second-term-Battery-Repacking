@@ -126,6 +126,80 @@ Predictor check across 4,642 held-out forecasts: MAE **0.115 Ah**, median absolu
 | `scripts/make_readme_figures.py` | Regenerates every figure in this README from checked-in JSON |
 | `docs/` | [Results](docs/RESULTS.md) · [Technical reference](docs/TECHNICAL.md) · [Qollab notes](docs/QOLLAB_SPIKE.md) · [Demo script](docs/DEMO_SCRIPT.md) |
 
+## Research process
+
+RePack-Q was run as an experiment, not a demo. We fixed the question, hypotheses, metrics and seeds **before** looking at any held-out outcome, and we report the answer whether or not it favored our idea. This section walks through that process step by step, following the scientific method.
+
+### 1. Observation
+
+Retired EV cells usually keep 70–80% of their original capacity, which makes them candidates for stationary storage. But second-life cells come from different vehicles and duty histories, so they vary much more than new cells from one production lot. In a series string, the weakest cell limits the whole pack. Grouping cells well is therefore one of the main open problems in second-life reuse.
+
+### 2. Background research
+
+- **Second life.** Reviews of battery second life identify cell heterogeneity, testing cost and uncertain remaining life as key barriers to economic reuse.
+- **Predicting degradation.** Early-cycle features can predict how a cell will age before its capacity visibly fades, which motivated us to group cells on predicted trajectories rather than snapshots. The Deep Sorting dataset we use was published to study exactly this kind of long-term consistency grouping.
+- **Selection as a QUBO.** "Choose exactly K items to minimize pairwise mismatch" is a classic quadratic binary problem. Standard techniques turn the cardinality constraint into a quadratic penalty and map the QUBO to an Ising Hamiltonian, the form quantum optimizers accept.
+- **QAOA.** The Quantum Approximate Optimization Algorithm alternates a cost Hamiltonian with a mixer and is a leading near-term candidate for such problems. Its performance depends strongly on depth *p* and on the choice of mixer. Constraint-preserving mixers and Dicke-state starts keep the search inside the feasible subspace.
+- **Leakage.** Data leakage, where information from the future enters a model, is a well-documented way to get misleadingly good results. The standard remedy is a strict learn/predict separation.
+
+### 3. Question and hypotheses
+
+> **Question.** If we group cells by their *forecast* future capacity, not just their present state, do the resulting packs stay more balanced? And can QAOA solve the resulting selection problem?
+
+- **H1 (objective).** On the same candidate pool, an exact trajectory-aware selection gives lower held-out pack divergence than an exact current-only selection.
+- **H2 (solver).** p = 1 QAOA, with one sampling job, returns valid K-cell packs whose objective is at or near the exact optimum.
+- **Null hypotheses.** H1: no difference in mean observed divergence. H2: QAOA's samples are no better than drawing bitstrings uniformly at random.
+
+### 4. Experimental design
+
+| Element | Choice | Why |
+|---|---|---|
+| **Data** | Public Deep Sorting dataset, 86 NMC/graphite cells | Real, longitudinal and open, and it covers second-life aging |
+| **Unit of analysis** | A pool of N = 8 eligible cells at decision cycle 16; choose K = 4 | Small enough for an exact oracle, large enough to be non-trivial (70 valid packs) |
+| **Independent variables** | Objective (current-only vs trajectory-aware); solver (SOH sort, greedy, annealing, exact, QAOA) | Separates *what we optimize* from *how we optimize it* |
+| **Controls** | Same pools, same normalization, same scoring for every arm; exact enumeration as a ground-truth oracle | Any difference is attributable to the variable under test |
+| **Dependent variables** | Observed pack divergence (CV of held-out capacity), bottleneck capacity, objective gap, feasible-shot mass, runtime | Each measures pack quality, solver quality or cost directly |
+| **Blinding / leakage control** | Prediction code rejects any observation after the decision cycle; future data is read only by the scorer | Learn/predict separation, enforced by unit tests |
+| **Pre-registration** | 20 seeds and all solver settings fixed in [`configs/task6_benchmark.json`](configs/task6_benchmark.json); config and input SHA-256 hashes recorded | Prevents choosing seeds or settings after seeing results |
+
+### 5. Data collection and analysis
+
+1. **Preprocess.** Stream raw CSVs into per-cell diagnostic trajectories (capacity, resistance, temperature) and record provenance hashes.
+2. **Validate the forecaster on its own.** Before any optimization, score it on 4,642 held-out cell-by-cutoff forecasts (MAE 0.115 Ah, median error 5.6%). A forecast that couldn't predict anything would make H1 meaningless.
+3. **Run the benchmark.** For each of the 20 seeded pools, run every solver and the objective ablation, then score all picks against the held-out future. The run is checkpointed so it resumes deterministically.
+4. **Summarize descriptively.** Report means, medians and paired win counts. With 20 overlapping pools from one inventory, we deliberately avoid significance claims.
+
+### 6. Results against the hypotheses
+
+| Hypothesis | Verdict | Evidence |
+|---|---|---|
+| **H1**: forecasting improves balance | ❌ **Not supported** on this seed set | Current-only 0.0719 vs trajectory-aware 0.0732 mean divergence; trajectory-aware better in 7/20 pools |
+| **H2**: QAOA finds near-optimal valid packs | ✅ **Supported** for finding the optimum | Valid pack in 20/20 pools; exact optimum sampled in 17/20; median gap 0 |
+| **H2 null**: no better than uniform | ⚠️ **Not rejected** | Valid-shot mass 29.3% vs 27.3% uniform; 1,024 uniform shots would also see the optimum in about 98% of runs |
+| Side result: optimization vs SOH sort | ✅ Every QUBO-based solver beat SOH sort on mean divergence | 0.0732 (exact) and 0.0762 (QAOA) vs 0.0767 (SOH sort) |
+
+The negative H1 result is useful in its own right: a simple linear forecast doesn't yet carry enough information to change which pack is best. The H2 result shows that our pipeline is correct end to end, and that the quantum part will only earn its place once the circuit concentrates probability on good packs.
+
+### 7. Threats to validity
+
+- **Internal.** Pools are drawn from one inventory and can share cells, so trials are not independent. Forecast cutoffs overlap within a cell.
+- **Construct.** "Divergence over 200 dataset cycles" stands in for real pack lifetime. It is not a household load trace or an electrochemical simulation.
+- **External.** One chemistry, one lab and one dataset. Results may not transfer to other cells or duty cycles.
+- **Statistical.** With N = 20, a mean OPD difference of 0.0013 is well within noise, so we draw no strong conclusion either way.
+
+### 8. Iteration: the next experiment
+
+The scientific method loops. Each result above tells us what to change next:
+
+1. **Make QAOA beat uniform.** Swap the X mixer for a constraint-preserving XY mixer with a Dicke-state start, so every shot is a valid pack. Then test p = 2–3 with warm-started angles. New success metric: optimum-pack probability well above 1/70.
+2. **Give H1 a fair second test.** Use a stronger degradation predictor (resistance growth, temperature, early-cycle features), multiple decision cycles and disjoint pools, then pre-register the new run the same way.
+3. **Scale.** Move to N = 16–24, where exact enumeration stops being free, and compare QAOA against the same classical baselines on equal time budgets.
+4. **Hardware.** Run the same single-job circuit on IonQ hardware once a supported submission path exists, and measure how noise changes feasible mass.
+
+### 9. Reproducibility
+
+Every number in this README can be regenerated. Use `src/scripts/run_benchmarks.py` with the pinned config to regenerate the benchmark ([docs/TECHNICAL.md](docs/TECHNICAL.md)), and `scripts/make_readme_figures.py` to regenerate every figure from the checked-in aggregate JSON. Provenance hashes are listed in [docs/RESULTS.md](docs/RESULTS.md).
+
 ## Originality, AI assistance and sources
 
 Pre-build work consisted of problem selection, dataset research and implementation planning. Project implementation, integration, experiments, UI and submission materials were developed during the hackathon build window. Codex was used as an AI coding assistant for implementation, debugging and documentation. Claude Code was used for the final documentation, figure-generation script and README/project-page design. The project-specific data pipeline, optimization model, QAOA engine, benchmark and interface are implemented in this repository. The associated Deep Sorting code release was consulted as a schema and sampling reference only; no code from it was copied. External data and software are listed in [ATTRIBUTION.md](ATTRIBUTION.md).
