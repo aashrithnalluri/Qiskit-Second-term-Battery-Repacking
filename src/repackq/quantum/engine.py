@@ -6,7 +6,7 @@ import itertools
 import math
 import time
 from dataclasses import dataclass
-from typing import Any, Sequence
+from typing import Any, Callable, Sequence
 
 from repackq.models import FutureTruth
 from repackq.optimization.objective import (
@@ -441,6 +441,7 @@ def run_qaoa(
     future_truth: Sequence[FutureTruth] | None = None,
     simulator_seed: int | None = None,
     transpiler_seed: int | None = None,
+    on_stage: Callable[[str], None] | None = None,
 ) -> QAOAResult:
     """Run QAOA with local parameter search and one final backend sampling job.
 
@@ -488,6 +489,9 @@ def run_qaoa(
     total_started = time.perf_counter()
     timings: dict[str, float] = {}
 
+    if on_stage is not None:
+        on_stage("preparing")
+
     stage_started = time.perf_counter()
     qubo = build_qubo(instance, penalty_multiplier=penalty_multiplier)
     ising = qubo_to_ising(qubo)
@@ -510,6 +514,8 @@ def run_qaoa(
     }
     timings["ansatz_build_ms"] = (time.perf_counter() - stage_started) * 1000.0
 
+    if on_stage is not None:
+        on_stage("parameter_optimization")
     optimization = optimize_qaoa_parameters(
         ansatz,
         cost_operator,
@@ -519,6 +525,8 @@ def run_qaoa(
     )
     timings["parameter_optimization_ms"] = optimization.elapsed_ms
 
+    if on_stage is not None:
+        on_stage("sampling")
     stage_started = time.perf_counter()
     bound = bind_qaoa_parameters(
         ansatz,
@@ -613,7 +621,7 @@ def run_qaoa(
     timings["result_diagnostics_ms"] = (time.perf_counter() - stage_started) * 1000.0
     timings["total_ms"] = (time.perf_counter() - total_started) * 1000.0
 
-    return QAOAResult(
+    result = QAOAResult(
         feasible=best_feasible is not None,
         status_message=(
             "QAOA produced at least one feasible K-cell sample."
@@ -659,6 +667,9 @@ def run_qaoa(
         backend_jobs_submitted=1,
         single_backend_job=True,
     )
+    if on_stage is not None:
+        on_stage("complete")
+    return result
 
 
 __all__ = [

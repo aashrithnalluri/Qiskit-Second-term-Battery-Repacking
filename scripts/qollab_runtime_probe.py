@@ -59,7 +59,7 @@ def runtime_report(namespace: Mapping[str, Any] | None = None) -> dict[str, Any]
         "possible_backend_objects": candidates,
         "local_qiskit_smoke": local_smoke,
         "credential_values_printed": False,
-        "note": "The smoke uses the local BasicSimulator; this probe does not submit a Qollab/backend job or inspect browser JavaScript globals.",
+        "note": "The capability probe uses local BasicSimulator; it does not submit a remote Qollab or IonQ job or inspect browser JavaScript globals.",
     }
 
 
