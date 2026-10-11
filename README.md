@@ -39,13 +39,11 @@ A series string is only as good as its weakest cell. Two cells can match today a
 
 1. **Data.** The [Deep Sorting of Reused Batteries](https://doi.org/10.5281/zenodo.14859405) dataset covers 86 NMC/graphite cells over a 30-month aging campaign. We extract diagnostic capacity, resistance and temperature summaries.
 2. **Forecast without leakage.** A weighted linear fit to each cell's recent capacity predicts its capacity at the mission horizon. Prediction functions reject any observation after the decision cycle (enforced by `tests/test_no_leakage.py`).
-3. **QUBO.** For binary choices $x_i$ (cell *i* in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells. Over binary vectors $x$ of length *N*:
+3. **QUBO.** For binary choices xᵢ (1 if cell *i* is in the pack), we minimize pairwise mismatch in normalized present capacity, resistance and forecast capacity, plus uncertainty and health terms. A calibrated penalty enforces exactly *K* cells. Over binary vectors *x* of length *N*:
 
-```math
-\min_x \sum_{i<j} w_{ij} x_i x_j + \sum_i h_i x_i + \lambda \left( \sum_i x_i - K \right)^2
-```
+<p align="center"><img src="docs/assets/qubo-equation.png" alt="QUBO objective: minimize the sum of pairwise mismatch weights over selected cells, plus per-cell terms, plus lambda times the squared difference between the number of selected cells and K" width="80%"></p>
 
-4. **QAOA.** The QUBO maps to an Ising Hamiltonian via $x_i = (1 - Z_i)/2$; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
+4. **QAOA.** The QUBO maps to an Ising Hamiltonian via xᵢ = (1 − Zᵢ)/2; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
 5. **Score.** Each solver's pack is scored on the **held-out** future capacities: observed pack divergence (CV), bottleneck capacity, objective gap and runtime.
 
 <img src="docs/assets/qaoa-samples.png" alt="Histogram of one QAOA run's 1024 shots, valid 4-cell packs highlighted, best valid pack equals the exact optimum" width="100%">

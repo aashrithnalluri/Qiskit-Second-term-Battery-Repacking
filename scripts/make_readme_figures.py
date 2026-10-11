@@ -412,7 +412,19 @@ def fig_ablation() -> None:
     save(fig, "ablation.png")
 
 
+def fig_equation() -> None:
+    # Rendered as an image so it displays identically on GitHub and Qollab.
+    with plt.rc_context({"mathtext.fontset": "cm"}):
+        fig = plt.figure(figsize=(8, 0.95))
+        fig.text(0.5, 0.5,
+                 r"$\min_{x}\ \sum_{i<j} w_{ij}\,x_i x_j\ +\ \sum_i h_i\,x_i\ +\ "
+                 r"\lambda\left(\sum_i x_i - K\right)^2$",
+                 ha="center", va="center", fontsize=21, color=INK)
+        save(fig, "qubo-equation.png")
+
+
 def main() -> None:
+    fig_equation()
     fig_hero()
     fig_thumbnail()
     fig_problem()
