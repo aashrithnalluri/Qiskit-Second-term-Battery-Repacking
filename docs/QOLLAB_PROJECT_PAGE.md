@@ -280,10 +280,6 @@ Every number in this README can be regenerated. Use `src/scripts/run_benchmarks.
 10. S. Kaufman, S. Rosset, C. Perlich and O. Stitelman, "Leakage in data mining: Formulation, detection, and avoidance," *ACM Transactions on Knowledge Discovery from Data* 6(4), 15 (2012). [doi:10.1145/2382577.2382579](https://doi.org/10.1145/2382577.2382579)
 11. Qiskit contributors, *Qiskit: an open-source framework for quantum computing*. [github.com/Qiskit/qiskit](https://github.com/Qiskit/qiskit)
 
-## Originality, AI assistance and sources
-
-Pre-build work consisted of problem selection, dataset research and implementation planning. Project implementation, integration, experiments, UI and submission materials were developed during the hackathon build window. Codex was used as an AI coding assistant for implementation, debugging and documentation. Claude Code was used for the final documentation, figure-generation script and README/project-page design. The project-specific data pipeline, optimization model, QAOA engine, benchmark and interface are implemented in this repository. The associated Deep Sorting code release was consulted as a schema and sampling reference only; no code from it was copied. External data and software are listed in [ATTRIBUTION.md](https://github.com/aashrithnalluri/Qiskit-Second-term-Battery-Repacking/blob/main/ATTRIBUTION.md).
-
 ## License and attribution
 
 MIT. See [LICENSE](https://github.com/aashrithnalluri/Qiskit-Second-term-Battery-Repacking/blob/main/LICENSE). Dataset terms are separate from the software license.
