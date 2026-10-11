@@ -136,11 +136,11 @@ Retired EV cells usually keep 70–80% of their original capacity, which makes t
 
 ### 2. Background research
 
-- **Second life.** Reviews of battery second life identify cell heterogeneity, testing cost and uncertain remaining life as key barriers to economic reuse.
-- **Predicting degradation.** Early-cycle features can predict how a cell will age before its capacity visibly fades, which motivated us to group cells on predicted trajectories rather than snapshots. The Deep Sorting dataset we use was published to study exactly this kind of long-term consistency grouping.
-- **Selection as a QUBO.** "Choose exactly K items to minimize pairwise mismatch" is a classic quadratic binary problem. Standard techniques turn the cardinality constraint into a quadratic penalty and map the QUBO to an Ising Hamiltonian, the form quantum optimizers accept.
-- **QAOA.** The Quantum Approximate Optimization Algorithm alternates a cost Hamiltonian with a mixer and is a leading near-term candidate for such problems. Its performance depends strongly on depth *p* and on the choice of mixer. Constraint-preserving mixers and Dicke-state starts keep the search inside the feasible subspace.
-- **Leakage.** Data leakage, where information from the future enters a model, is a well-documented way to get misleadingly good results. The standard remedy is a strict learn/predict separation.
+- **Second life.** Reviews of battery second life identify cell heterogeneity, testing cost and uncertain remaining life as key barriers to economic reuse [[1]](#ref-1).
+- **Predicting degradation.** Early-cycle features can predict how a cell will age before its capacity visibly fades [[2]](#ref-2), which motivated us to group cells on predicted trajectories rather than snapshots. The Deep Sorting dataset we use was published to study exactly this kind of long-term consistency grouping [[3]](#ref-3).
+- **Selection as a QUBO.** "Choose exactly K items to minimize pairwise mismatch" is a classic quadratic binary problem. Standard techniques turn the cardinality constraint into a quadratic penalty and map the QUBO to an Ising Hamiltonian, the form quantum optimizers accept [[4]](#ref-4) [[5]](#ref-5).
+- **QAOA.** The Quantum Approximate Optimization Algorithm alternates a cost Hamiltonian with a mixer and is a leading near-term candidate for such problems [[6]](#ref-6). Its performance depends strongly on depth *p* and on the choice of mixer [[7]](#ref-7). Constraint-preserving mixers and Dicke-state starts keep the search inside the feasible subspace [[8]](#ref-8) [[9]](#ref-9).
+- **Leakage.** Data leakage, where information from the future enters a model, is a well-documented way to get misleadingly good results. The standard remedy is a strict learn/predict separation [[10]](#ref-10).
 
 ### 3. Question and hypotheses
 
@@ -199,6 +199,20 @@ The scientific method loops. Each result above tells us what to change next:
 ### 9. Reproducibility
 
 Every number in this README can be regenerated. Use `src/scripts/run_benchmarks.py` with the pinned config to regenerate the benchmark ([docs/TECHNICAL.md](docs/TECHNICAL.md)), and `scripts/make_readme_figures.py` to regenerate every figure from the checked-in aggregate JSON. Provenance hashes are listed in [docs/RESULTS.md](docs/RESULTS.md).
+
+## References
+
+1. <a id="ref-1"></a>E. Martinez-Laserna et al., "Battery second life: Hype, hope or reality? A critical review of the state of the art," *Renewable and Sustainable Energy Reviews* 93, 701–718 (2018). [doi:10.1016/j.rser.2018.04.035](https://doi.org/10.1016/j.rser.2018.04.035)
+2. <a id="ref-2"></a>K. A. Severson et al., "Data-driven prediction of battery cycle life before capacity degradation," *Nature Energy* 4, 383–391 (2019). [doi:10.1038/s41560-019-0356-8](https://doi.org/10.1038/s41560-019-0356-8)
+3. <a id="ref-3"></a>Wang, Gao and Tian, *Data for: Deep sorting of reused batteries for enabling long-term consistency grouping with unknown prior conditions*, Zenodo dataset. [doi:10.5281/zenodo.14859405](https://doi.org/10.5281/zenodo.14859405)
+4. <a id="ref-4"></a>A. Lucas, "Ising formulations of many NP problems," *Frontiers in Physics* 2, 5 (2014). [arXiv:1302.5843](https://arxiv.org/abs/1302.5843)
+5. <a id="ref-5"></a>F. Glover, G. Kochenberger and Y. Du, "Quantum Bridge Analytics I: a tutorial on formulating and using QUBO models," *4OR* 17, 335–371 (2019). [arXiv:1811.11538](https://arxiv.org/abs/1811.11538)
+6. <a id="ref-6"></a>E. Farhi, J. Goldstone and S. Gutmann, "A Quantum Approximate Optimization Algorithm" (2014). [arXiv:1411.4028](https://arxiv.org/abs/1411.4028)
+7. <a id="ref-7"></a>L. Zhou, S.-T. Wang, S. Choi, H. Pichler and M. D. Lukin, "Quantum approximate optimization algorithm: performance, mechanism, and implementation on near-term devices," *Physical Review X* 10, 021067 (2020). [arXiv:1812.01041](https://arxiv.org/abs/1812.01041)
+8. <a id="ref-8"></a>S. Hadfield et al., "From the Quantum Approximate Optimization Algorithm to a Quantum Alternating Operator Ansatz," *Algorithms* 12(2), 34 (2019). [arXiv:1709.03489](https://arxiv.org/abs/1709.03489)
+9. <a id="ref-9"></a>A. Bärtschi and S. Eidenbenz, "Deterministic preparation of Dicke states" (2019). [arXiv:1904.07358](https://arxiv.org/abs/1904.07358)
+10. <a id="ref-10"></a>S. Kaufman, S. Rosset, C. Perlich and O. Stitelman, "Leakage in data mining: Formulation, detection, and avoidance," *ACM Transactions on Knowledge Discovery from Data* 6(4), 15 (2012). [doi:10.1145/2382577.2382579](https://doi.org/10.1145/2382577.2382579)
+11. <a id="ref-11"></a>Qiskit contributors, *Qiskit: an open-source framework for quantum computing*. [github.com/Qiskit/qiskit](https://github.com/Qiskit/qiskit)
 
 ## Originality, AI assistance and sources
 
