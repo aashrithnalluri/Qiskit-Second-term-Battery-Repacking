@@ -46,6 +46,8 @@ A series string is only as good as its weakest cell. Two cells can match today a
 4. **QAOA.** The QUBO maps to an Ising Hamiltonian via xᵢ = (1 − Zᵢ)/2; the mapping is verified exhaustively for N ≤ 12. Parameters are optimized on an ideal Statevector. The measured circuit is then transpiled for the backend you pick in Qollab and sent as **one sampling job**.
 5. **Score.** Each solver's pack is scored on the **held-out** future capacities: observed pack divergence (CV), bottleneck capacity, objective gap and runtime.
 
+Every equation behind these steps, from the forecast to the QAOA gates, is written out in **[The math](#the-math)**.
+
 <img src="docs/assets/qaoa-samples.png" alt="Histogram of one QAOA run's 1024 shots, valid 4-cell packs highlighted, best valid pack equals the exact optimum" width="100%">
 
 ## Run it
@@ -123,6 +125,98 @@ Predictor check across 4,642 held-out forecasts: MAE **0.115 Ah**, median absolu
 | `tests/` | Leakage, QUBO↔Ising mapping, QAOA, solvers, dataset adapter, benchmark, UI API |
 | `scripts/make_readme_figures.py` | Regenerates every figure in this README from checked-in JSON |
 | `docs/` | [Results](docs/RESULTS.md) · [Technical reference](docs/TECHNICAL.md) · [Qollab notes](docs/QOLLAB_SPIKE.md) · [Demo script](docs/DEMO_SCRIPT.md) |
+
+## The math
+
+Every step of the pipeline, written out exactly as the code implements it. Symbols: *N* candidate cells, *K* cells per pack, decision cycle *t₀*, horizon *H* (200 cycles), and binary choice xᵢ = 1 if cell *i* goes in the pack.
+
+### 1. Leakage-free capacity forecast (`prediction/trajectory.py`)
+
+For each cell we fit a line to its last 8 capacity measurements (at least 4), all taken **at or before** *t₀*. Newer points get more weight:
+
+<p align="center"><img src="docs/assets/math/forecast-fit.png" alt="Weighted least squares: intercept a and slope b minimize the weighted squared residuals of capacity versus cycle offset, with weights evenly spaced from 0.5 to 1" width="840"></p>
+
+The forecast extrapolates from today's measured capacity. Fade is never allowed to reverse, so a positive slope is clamped to zero, and the forecast can never exceed today's capacity:
+
+<p align="center"><img src="docs/assets/math/forecast-pred.png" alt="Predicted capacity equals current capacity plus the non-positive slope times H, clipped between zero and current capacity" width="475"></p>
+
+Each forecast carries an uncertainty proxy: the weighted residual RMS, inflated by how far we extrapolate relative to the history span Δtᵢ, and capped at 25% of nominal capacity:
+
+<p align="center"><img src="docs/assets/math/forecast-unc.png" alt="Uncertainty equals the weighted residual root-mean-square times the square root of one plus H over the history span, capped at 0.25 times nominal capacity" width="470"></p>
+
+The code **rejects** any observation after *t₀* rather than silently filtering it, and `tests/test_no_leakage.py` checks this.
+
+### 2. Pool-local normalization (`optimization/normalization.py`)
+
+Capacity *c*, resistance *r*, forecast capacity *p = Ĉ* and uncertainty *u* have different units, so each is rescaled within the candidate pool using robust statistics:
+
+<p align="center"><img src="docs/assets/math/normalize.png" alt="Normalized value equals the value minus the pool median, divided by the pool interquartile range" width="442"></p>
+
+If the IQR is zero the code falls back to a z-score; if the standard deviation is also zero, the feature is constant and contributes nothing. Missing measurements stay missing and drop only the pair terms that need them. State of health *sᵢ* is kept in its physical units, clamped to [0, 1].
+
+### 3. The compatibility objective (`optimization/objective.py`)
+
+A good series pack has cells that match each other now **and** later. The objective sums squared mismatches over every selected pair, and adds a per-cell term that rewards health and penalizes uncertain forecasts:
+
+<p align="center"><img src="docs/assets/math/objective.png" alt="f of x equals the sum over selected pairs of weighted squared differences in normalized capacity, resistance and forecast capacity, plus the sum over selected cells of uncertainty weight times normalized uncertainty minus health weight times SOH" width="840"></p>
+
+| Weight | Term | `pv_tou` mission value |
+|---|---|---:|
+| w_C | present-capacity mismatch | 0.30 |
+| w_F | forecast-capacity mismatch (trajectory-aware only) | 0.35 |
+| w_R | resistance mismatch | 0.20 |
+| w_H | health (SOH) reward | 0.10 |
+| w_U | forecast-uncertainty penalty (trajectory-aware only) | 0.05 |
+
+The **current-only** ablation sets w_F = w_U = 0. That is the only difference between the two arms of the H1 experiment.
+
+### 4. Enforcing exactly K cells: the QUBO (`optimization/objective.py`)
+
+Quantum optimizers take *unconstrained* binary problems, so the "exactly K" rule becomes a quadratic penalty. Because xᵢ² = xᵢ for bits, it expands into ordinary linear and pairwise terms:
+
+<p align="center"><img src="docs/assets/math/penalty.png" alt="lambda times the squared difference between the number of selected cells and K equals lambda times the sum of one minus 2K times x i, plus two times the sum of pairwise products, plus K squared" width="702"></p>
+
+Adding it to *f* gives a standard QUBO: linear coefficients *qᵢ*, pairwise coefficients *Qᵢⱼ* and a constant. The penalty strength starts at 4× the largest physical coefficient and is **doubled until an exhaustive check proves that the QUBO's global minimum selects exactly K cells**, which is feasible to check for N ≤ 20:
+
+<p align="center"><img src="docs/assets/math/qubo.png" alt="QUBO energy E of x equals the sum of q i x i plus the sum of Q i j x i x j plus a constant, with lambda equal to four times the maximum of one and the largest physical coefficients, times two to the m" width="840"></p>
+
+<p align="center"><img src="docs/assets/qubo-equation.png" alt="Compact form: minimize pairwise weights plus linear terms plus lambda times the squared cardinality violation" width="800"></p>
+
+### 5. From bits to qubits: the Ising Hamiltonian (`optimization/objective.py`)
+
+Each bit becomes a qubit through its Pauli-Z eigenvalue, Zᵢ ∈ {+1, −1}, so |0⟩ means "not selected" and |1⟩ means "selected":
+
+<p align="center"><img src="docs/assets/math/ising.png" alt="Substituting x i equals one minus Z i over two turns the QUBO into a cost Hamiltonian with single-Z fields h i, ZZ couplings J i j and an offset E zero" width="508"></p>
+
+<p align="center"><img src="docs/assets/math/ising-coeffs.png" alt="J i j equals Q i j over four; h i equals minus q i over two minus one quarter of the sum of Q i j over j not equal to i; E zero equals c plus half the sum of q plus a quarter of the sum of Q" width="663"></p>
+
+For N ≤ 12 the code checks all 2ᴺ bitstrings and verifies that the Ising energy equals the QUBO energy for every one.
+
+### 6. QAOA (`quantum/qiskit_compat.py`, `quantum/engine.py`)
+
+QAOA prepares a uniform superposition over all 2ᴺ selections, applies the cost Hamiltonian as a phase, then mixes amplitudes with a transverse field. At depth p = 1:
+
+<p align="center"><img src="docs/assets/math/qaoa-state.png" alt="QAOA state: apply Hadamards to all qubits, then the cost unitary with angle gamma, then the X mixer with angle beta" width="542"></p>
+
+Each piece compiles to native gates. Single-Z fields become RZ rotations, ZZ couplings become a CX–RZ–CX sandwich, and the mixer is an RX on every qubit:
+
+<p align="center"><img src="docs/assets/math/qaoa-gates.png" alt="Z field: RZ of 2 gamma h i. ZZ coupling: CX, RZ of 2 gamma J i j on the target, CX. Mixer: RX of 2 beta" width="838"></p>
+
+The two angles are tuned **classically** by minimizing the exact expected energy on Qiskit's ideal Statevector. The code uses SciPy COBYLA when available, and otherwise a 12 × 8 grid over γ ∈ [0, 2π), β ∈ [0, π) followed by local refinement:
+
+<p align="center"><img src="docs/assets/math/qaoa-params.png" alt="Optimal gamma and beta minimize the expectation value of the cost Hamiltonian" width="408"></p>
+
+The final circuit with (γ\*, β\*) is measured in one sampling job on the selected backend. From the shots we keep the bitstrings with exactly K ones and return the one with the lowest *f*.
+
+### 7. How packs and solvers are scored (`prediction/metrics.py`, `benchmark/`)
+
+A selected pack *S* is scored on **held-out** future capacities that no solver saw. Observed pack divergence (OPD) is the population coefficient of variation; the bottleneck is the weakest cell, which limits a series string:
+
+<p align="center"><img src="docs/assets/math/metrics-pack.png" alt="OPD of S equals the population standard deviation of future capacities divided by their mean; bottleneck equals the minimum future capacity in S" width="550"></p>
+
+Solvers are compared on objective gap to the exact optimum *x\**, and QAOA on how much of its shot distribution lands on valid packs. The reference is uniform random sampling, which hits a valid 4-of-8 pack 70/256 of the time:
+
+<p align="center"><img src="docs/assets/math/metrics-solver.png" alt="gap equals the max of zero and f of x minus f of x star; valid probability equals the sum of p of x over bitstrings with K ones; uniform baseline equals 70 over 256, about 27.3 percent" width="840"></p>
 
 ## Research process
 
